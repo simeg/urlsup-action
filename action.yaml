@@ -1,0 +1,17 @@
+name: '[urlsup] Validate links'
+description: 'Validate that your links are up'
+
+inputs:
+  args:
+    description: 'Arguments to urlsup'
+    required: true
+
+runs:
+  using: 'docker'
+  image: 'docker://simeg/urlsup:2.0.0'
+  args:
+    - ${{ inputs.args }}
+
+branding:
+  icon: check-circle
+  color: green
