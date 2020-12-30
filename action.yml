@@ -1,5 +1,5 @@
-name: '[urlsup] Validate links'
-description: 'Validate that your links are up'
+name: 'Link Availability Validator'
+description: 'Validate that links in your repo are up and available'
 
 inputs:
   args:
