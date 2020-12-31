@@ -26,22 +26,27 @@ jobs:
     steps:
       - uses: actions/checkout@v2  # Required for urlsup
 
-      # This step writes the files with URLs to an env variable to be used for the later step
+      # This step writes the files with URLs to the env variable $FILES_TO_CHECK to be used for the later step
       - name: Find files with links
         shell: bash
         run: |
           echo 'FILES_TO_CHECK<<EOF' >> $GITHUB_ENV
+          
+          # --- This is where we define what files to check ---
 
-          # This is where we define the files we want to check
-          find $GITHUB_WORKSPACE -type f \  # $GITHUB_WORKSPACE is where the files live
-          -not -path '*/\.git/*' -not -path '*/\.github/*' \  # Ignore dirs
-          -name "*.md" \  # Only include markdown files
-                      >> $GITHUB_ENV
-
+          # $GITHUB_WORKSPACE is where our files live
+          # Ignore dirs and only include markdown files
+          
+          files_to_check=$(find $GITHUB_WORKSPACE -type f \
+          -not -path '*/\.git/*' -not -path '*/\.github/*' \
+          -name "*.md")
+          
+          echo $files_to_check >> $GITHUB_ENV
           echo 'EOF' >> $GITHUB_ENV
 
       - name: Validate that links are up
         uses: simeg/urlsup-action@v1.0.0
-        with:  # Pass additional arguments to urlsup
+        with:
+          # Pass the files and any additional arguments to urlsup
           args: ${{ env.FILES_TO_CHECK }} --threads 10 --allow 429 --white-list http://localhost
 ```
