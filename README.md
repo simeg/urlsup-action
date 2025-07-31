@@ -24,7 +24,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2  # Required for urlsup
+      - uses: actions/checkout@v4  # Required for urlsup
 
       # This step writes the files with URLs to the env variable $FILES_TO_CHECK to be used for the later step
       - name: Find files with links
