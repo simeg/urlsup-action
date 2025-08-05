@@ -1,0 +1,30 @@
+name: Simple URL Check
+
+on:
+  pull_request:            # validate all PRs
+    branches: ["**"]
+  push:                    # only after merge or when tagging
+    branches: ["main"]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  check-urls:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check URLs
+        id: urlsup
+        uses: ./
+        with:
+          files: '.'
+          recursive: true
+          include-extensions: 'md'
+          fail-on-error: true
+          create-annotations: true
+
