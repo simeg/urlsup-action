@@ -1,0 +1,23 @@
+name: Simple URL Check
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 9 * * 1'  # Weekly
+
+jobs:
+  check-urls:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check URLs
+        uses: ./
+        with:
+          files: '.'
+          recursive: true
+          include-extensions: 'md'
+          fail-on-error: true
+          create-annotations: true

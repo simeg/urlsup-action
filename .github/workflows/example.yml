@@ -1,0 +1,135 @@
+name: URL Validation Example
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 9 * * 1'  # Weekly on Monday at 9 AM UTC
+  workflow_dispatch:
+    inputs:
+      files:
+        description: 'Files to check (space-separated patterns)'
+        default: '**/*.md'
+        required: false
+      strict:
+        description: 'Strict mode (only allow 200 status)'
+        type: boolean
+        default: false
+      include_test_files:
+        description: 'Include test files that may have broken URLs'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: url-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-urls:
+    runs-on: ubuntu-latest
+    name: Validate URLs
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Determine files to check
+        id: files
+        run: |
+          # Default to including test files unless explicitly set to false
+          include_test_files="${{ inputs.include_test_files }}"
+          if [[ "$include_test_files" == "false" ]]; then
+            # Only check main documentation files
+            files="${{ inputs.files || 'README.md CLAUDE.md' }}"
+            echo "files=$files" >> $GITHUB_OUTPUT
+            echo "Checking specific files: $files"
+            echo "Test files excluded"
+          else
+            # Check all files in repository recursively (default behavior)
+            files="${{ inputs.files || '.' }}"
+            echo "files=$files" >> $GITHUB_OUTPUT
+            echo "Checking directory: $files (recursive)"
+            echo "Will find all .md files in the repository including test files"
+          fi
+          
+      - name: Validate URLs in files
+        id: urlsup
+        uses: ./  # Use local action for testing
+        with:
+          files: ${{ steps.files.outputs.files }}
+          recursive: true
+          include-extensions: 'md'
+          timeout: 5
+          retry: 1
+          rate-limit: 100
+          allow-status: ${{ inputs.strict && '200' || '200' }}
+          exclude-pattern: 'localhost|127\.0\.0\.1|example\.com|0\.0\.0\.0'
+          user-agent: 'urlsup-action-test/2.2.0'
+          fail-on-error: true
+          create-annotations: true
+          
+      - name: Display results
+        if: always()
+        run: |
+          echo "## 📊 URL Validation Results"
+          echo "- **Total URLs**: ${{ steps.urlsup.outputs.total-urls }}"
+          echo "- **Broken URLs**: ${{ steps.urlsup.outputs.broken-urls }}"
+          echo "- **Success Rate**: ${{ steps.urlsup.outputs.success-rate }}"
+          echo "- **Exit Code**: ${{ steps.urlsup.outputs.exit-code }}"
+          echo "- **Report**: ${{ steps.urlsup.outputs.report-path }}"
+          echo ""
+          if [[ "${{ steps.urlsup.outputs.broken-urls }}" == "0" ]]; then
+            echo "🎉 All URLs are working correctly!"
+          else
+            echo "⚠️  Found ${{ steps.urlsup.outputs.broken-urls }} broken URL(s)"
+            echo "Check the job summary and annotations for details."
+          fi
+          
+      - name: Comment on PR (if applicable)
+        if: github.event_name == 'pull_request' && steps.urlsup.outputs.broken-urls != '0' && steps.urlsup.outputs.broken-urls != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const brokenUrls = '${{ steps.urlsup.outputs.broken-urls }}' || '0';
+            const totalUrls = '${{ steps.urlsup.outputs.total-urls }}' || '0';
+            const successRate = '${{ steps.urlsup.outputs.success-rate }}' || '0%';
+            
+            // Only comment if we have meaningful data
+            if (brokenUrls === '0' || brokenUrls === '' || totalUrls === '0') {
+              console.log('No broken URLs or empty results, skipping PR comment');
+              return;
+            }
+            
+            const body = `## 🔗 URL Validation Results
+            
+            Found **${brokenUrls}** broken URL(s) out of **${totalUrls}** total URLs (${successRate} success rate).
+            
+            Please check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details and fix any broken links.
+            
+            <details>
+            <summary>How to fix</summary>
+            
+            1. Check the workflow annotations for specific broken URLs
+            2. Update or remove broken links
+            3. Consider using allowlists for URLs that are temporarily down
+            4. Re-run the workflow to verify fixes
+            
+            </details>`;
+            
+            try {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+              console.log('Posted PR comment with URL validation results');
+            } catch (error) {
+              console.log('Failed to post PR comment:', error.message);
+            }

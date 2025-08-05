@@ -1,0 +1,10 @@
+https://www.ruby-lang.org
+https://www.rust-lang.org
+https://www.rust-lang.org/en-US/install.html
+https://www.sublimecodeintel.com/
+https://www.sublimetext.com/
+https://www.tug.org/mactex/BasicTeX.pdf
+https://www.tug.org/mactex/What_Is_Installed.pdf
+https://www.virtualbox.org/
+https://www.virtualbox.org/wiki/Downloads
+https://www.xquartz.org/

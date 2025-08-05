@@ -1,0 +1,10 @@
+ 386. https://metacpan.org/pod/App::cpanminus
+ 387. https://nodejs.org
+ 388. https://numpy.org/
+ 389. https://octave-app.org
+ 390. https://octave-app.org/#installing-with-homebrew-cask
+ 391. https://packagecontrol.io/installation
+ 392. https://perlbrew.pl
+ 393. https://pypi.org/project/setuptools/
+ 394. https://pypi.python.org/pypi/setuptools
+ 395. https://python.org/
