@@ -1,0 +1,230 @@
+name: URL Validation Example
+
+on:
+  pull_request:            # validate all PRs
+    branches: ["**"]
+  push:                    # only after merge or when tagging
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      files:
+        description: 'Files to check (space-separated patterns)'
+        default: '**/*.md'
+        required: false
+      strict:
+        description: 'Strict mode (only allow 200 status)'
+        type: boolean
+        default: false
+      include_test_files:
+        description: 'Include test files that may have broken URLs'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: url-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-urls:
+    runs-on: ubuntu-latest
+    name: Validate URLs
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Determine files to check
+        id: files
+        run: |
+          # Default to including test files unless explicitly set to false
+          include_test_files="${{ inputs.include_test_files }}"
+          if [[ "$include_test_files" == "false" ]]; then
+            # Only check main documentation files
+            files="${{ inputs.files || 'README.md CLAUDE.md' }}"
+            echo "files=$files" >> $GITHUB_OUTPUT
+            echo "Checking specific files: $files"
+            echo "Test files excluded"
+          else
+            # Check all files in repository recursively (default behavior)
+            files="${{ inputs.files || '.' }}"
+            echo "files=$files" >> $GITHUB_OUTPUT
+            echo "Checking directory: $files (recursive)"
+            echo "Will find all .md files in the repository including test files"
+          fi
+          
+      - name: Validate URLs in files
+        id: urlsup
+        uses: ./  # Use local action for testing
+        with:
+          files: ${{ steps.files.outputs.files }}
+          recursive: true
+          include-extensions: 'md'
+          timeout: 5
+          retry: 1
+          rate-limit: 100
+          allow-status: ${{ inputs.strict && '200' || '200' }}
+          exclude-pattern: 'localhost|127\.0\.0\.1|example\.com|0\.0\.0\.0'
+          user-agent: 'urlsup-action-test/2.2.0'
+          fail-on-error: true
+          create-annotations: true
+          
+      - name: Display results
+        if: always()
+        run: |
+          echo "## 📊 URL Validation Results"
+          echo "- **Total URLs**: ${{ steps.urlsup.outputs.total-urls }}"
+          echo "- **Broken URLs**: ${{ steps.urlsup.outputs.broken-urls }}"
+          echo "- **Success Rate**: ${{ steps.urlsup.outputs.success-rate }}"
+          echo "- **Exit Code**: ${{ steps.urlsup.outputs.exit-code }}"
+          echo "- **Report**: ${{ steps.urlsup.outputs.report-path }}"
+          echo ""
+          if [[ "${{ steps.urlsup.outputs.broken-urls }}" == "0" ]]; then
+            echo "🎉 All URLs are working correctly!"
+          else
+            echo "⚠️  Found ${{ steps.urlsup.outputs.broken-urls }} broken URL(s)"
+            echo "Check the job summary and annotations for details."
+          fi
+          
+      - name: Debug outputs for PR comment
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Broken URLs: '${{ steps.urlsup.outputs.broken-urls }}'"
+          echo "Total URLs: '${{ steps.urlsup.outputs.total-urls }}'"
+          echo "Success Rate: '${{ steps.urlsup.outputs.success-rate }}'"
+          echo "Exit Code: '${{ steps.urlsup.outputs.exit-code }}'"
+
+      - name: Update PR comment with results
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const brokenUrls = '${{ steps.urlsup.outputs.broken-urls }}' || '0';
+            const totalUrls = '${{ steps.urlsup.outputs.total-urls }}' || '0';
+            const successRate = '${{ steps.urlsup.outputs.success-rate }}' || '0%';
+            const exitCode = '${{ steps.urlsup.outputs.exit-code }}' || '0';
+            
+            // Rich metadata
+            const totalFiles = '${{ steps.urlsup.outputs.total-files }}' || '0';
+            const processedFiles = '${{ steps.urlsup.outputs.processed-files }}' || '0';
+            const totalFoundUrls = '${{ steps.urlsup.outputs.total-found-urls }}' || '0';
+            const uniqueUrls = '${{ steps.urlsup.outputs.unique-urls }}' || '0';
+            const status = '${{ steps.urlsup.outputs.status }}' || 'unknown';
+            
+            console.log('PR Comment Debug - brokenUrls:', brokenUrls);
+            console.log('PR Comment Debug - totalUrls:', totalUrls);
+            console.log('PR Comment Debug - successRate:', successRate);
+            console.log('PR Comment Debug - totalFoundUrls:', totalFoundUrls);
+            
+            // Create status icon and message
+            const statusIcon = brokenUrls === '0' ? '✅' : '❌';
+            const statusMessage = brokenUrls === '0' ? 'All URLs are working!' : `Found ${brokenUrls} broken URL(s)`;
+            
+            // Format the current date/time
+            const now = new Date().toLocaleString('en-US', { 
+              timeZone: 'UTC',
+              dateStyle: 'medium',
+              timeStyle: 'short'
+            });
+            
+            // Build metrics table with available data
+            let metricsTable = `| Metric | Value |
+            |--------|-------|
+            | **Status** | ${statusIcon} ${statusMessage} |
+            | **URLs Validated** | ${totalUrls} |
+            | **Working URLs** | ${totalUrls - brokenUrls} |
+            | **Broken URLs** | ${brokenUrls} |
+            | **Success Rate** | ${successRate} |`;
+            
+            // Add rich metadata if available
+            if (totalFiles !== '0' || totalFoundUrls !== '0') {
+              metricsTable += `
+            | **Files Processed** | ${processedFiles}/${totalFiles} |
+            | **Total URLs Found** | ${totalFoundUrls} |
+            | **Unique URLs** | ${uniqueUrls} |`;
+              
+              if (uniqueUrls !== '0' && totalFoundUrls !== '0') {
+                const duplicates = parseInt(totalFoundUrls) - parseInt(uniqueUrls);
+                metricsTable += `
+            | **Duplicate URLs** | ${duplicates} |`;
+              }
+            }
+            
+            metricsTable += `
+            | **Last Updated** | ${now} UTC |`;
+            
+            // Create enhanced comment body
+            const body = `## ${statusIcon} URL Validation Results
+            
+            ${statusMessage}
+            
+            ${metricsTable}
+            
+            ${brokenUrls !== '0' ? `### 🔍 Next Steps
+            
+            1. **Check workflow annotations** above for specific broken URLs and line numbers
+            2. **Review the job summary** in the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for detailed breakdown
+            3. **Fix or remove** broken links in your files
+            4. **Consider allowlisting** URLs that are expected to be temporarily unavailable
+            5. **Re-run the workflow** to verify your fixes
+            
+            ### 📋 Workflow Details
+            - **Run ID**: [\`${{ github.run_id }}\`](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            - **Commit**: \`${{ github.sha }}\`
+            - **Branch**: \`${{ github.head_ref || github.ref_name }}\`
+            ` : `### ✨ Great Job!
+            
+            All URLs in your changes are working correctly. No action needed!
+            
+            - **Run ID**: [\`${{ github.run_id }}\`](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            - **Commit**: \`${{ github.sha }}\`
+            `}
+            
+            ---
+            
+            <sub>🤖 This comment is automatically updated by the URL validation workflow. Report issues [here](https://github.com/simeg/urlsup-action/issues).</sub>`;
+            
+            // Comment identifier to find existing comments
+            const commentIdentifier = '🤖 This comment is automatically updated by the URL validation workflow';
+            
+            try {
+              // Find existing comment by the bot
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+              });
+              
+              const existingComment = comments.find(comment => 
+                comment.user.type === 'Bot' && 
+                comment.body.includes(commentIdentifier)
+              );
+              
+              if (existingComment) {
+                // Update existing comment
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existingComment.id,
+                  body: body
+                });
+                console.log('Updated existing PR comment with ID:', existingComment.id);
+              } else {
+                // Create new comment
+                const { data: newComment } = await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: body
+                });
+                console.log('Created new PR comment with ID:', newComment.id);
+              }
+            } catch (error) {
+              console.log('Failed to update/create PR comment:', error.message);
+              console.log('Error details:', error);
+            }
