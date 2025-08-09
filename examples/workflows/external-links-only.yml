@@ -1,0 +1,363 @@
+name: External Links Only Validation
+
+# This workflow validates only external links, excluding internal links,
+# relative paths, and local references. Useful for checking external
+# dependencies and ensuring outbound links remain valid.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Check external links daily at 4 AM UTC
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      link_scope:
+        description: 'Scope of external links to validate'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - documentation
+        - critical
+        - social
+
+jobs:
+  external-links-comprehensive:
+    name: All External Links
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'schedule' ||
+      github.event.inputs.link_scope == 'all'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate all external links
+      uses: simeg/urlsup-action@v2
+      with:
+        files: '**/*.md **/*.rst **/*.html'
+        timeout: 20
+        retry: 3
+        retry-delay: 3
+        concurrency: 15
+        rate-limit: 30
+
+        # Accept common redirect codes for external links
+        allow-status: '200,201,202,204,301,302,304,429'
+        allow-timeout: true
+        failure-threshold: 10
+
+        # Comprehensive external domain allowlist
+        allowlist: |
+          github.com
+          docs.github.com
+          developer.github.com
+          stackoverflow.com
+          developer.mozilla.org
+          www.w3.org
+          tools.ietf.org
+          datatracker.ietf.org
+          npmjs.com
+          pypi.org
+          crates.io
+          hub.docker.com
+          medium.com
+          dev.to
+          hashnode.com
+          linkedin.com
+          twitter.com
+          youtube.com
+
+        # Exclude all internal and local references
+        exclude-pattern: |
+          ^https?://localhost
+          ^https?://127\.0\.0\.1
+          ^https?://0\.0\.0\.0
+          ^https?://.*\.local
+          ^https?://.*\.test
+          ^https?://.*\.example\.com
+          ^https?://.*\.example\.org
+          ^https?://your-domain\.com
+          ^https?://your-site\.com
+          ^\./|^/[^/]|^#|^\?
+          ^mailto:|^tel:|^ftp:|^file:
+          ^javascript:|^data:
+
+  external-documentation-links:
+    name: External Documentation Links
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name != 'schedule' ||
+      github.event.inputs.link_scope == 'documentation'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate external documentation links
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'docs/ README.md CONTRIBUTING.md'
+        include-extensions: 'md,rst'
+        timeout: 15
+        retry: 2
+        concurrency: 12
+
+        # Documentation-focused status codes
+        allow-status: '200,201,204,301,302,304'
+        failure-threshold: 5
+
+        # Documentation and reference domains
+        allowlist: |
+          docs.github.com
+          developer.github.com
+          developer.mozilla.org
+          www.w3.org
+          tools.ietf.org
+          datatracker.ietf.org
+          stackoverflow.com
+          wiki.example.com
+
+        # Exclude non-documentation external links
+        exclude-pattern: |
+          ^https?://localhost|^https?://127\.0\.0\.1
+          ^https?://.*\.local|^https?://.*\.test
+          ^https?://.*\.example\.com
+          ^\./|^/[^/]|^#
+          ^mailto:|^tel:
+          twitter\.com|linkedin\.com|facebook\.com
+          youtube\.com|vimeo\.com
+
+        user-agent: 'Documentation-Link-Validator/1.0'
+
+  external-critical-links:
+    name: Critical External Links
+    runs-on: ubuntu-latest
+    if: github.event.inputs.link_scope == 'critical'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate critical external links
+      uses: simeg/urlsup-action@v2
+      with:
+        # Only most critical files
+        files: 'README.md SECURITY.md LICENSE'
+        timeout: 25
+        retry: 2
+        concurrency: 5
+
+        # Strict validation for critical links
+        allow-status: '200,301,302'
+        allow-timeout: false
+        failure-threshold: 0
+        fail-on-error: true
+
+        # Only most trusted external domains
+        allowlist: |
+          github.com
+          docs.github.com
+          www.w3.org
+          opensource.org
+
+        # Exclude everything except absolute external URLs
+        exclude-pattern: |
+          ^https?://localhost|^https?://127\.0\.0\.1
+          ^https?://.*\.local|^https?://.*\.test
+          ^https?://.*\.example
+          ^\./|^/[^/]|^#|^\?
+          ^mailto:|^tel:|^ftp:
+
+  external-social-links:
+    name: Social Media Links
+    runs-on: ubuntu-latest
+    if: github.event.inputs.link_scope == 'social'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate social media links
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'README.md docs/contact.md CONTRIBUTORS.md'
+        timeout: 10
+        retry: 3
+        concurrency: 8
+
+        # Social media status codes (some require auth)
+        allow-status: '200,301,302,401,403,404'
+        allow-timeout: true
+        failure-threshold: 3
+
+        # Social media and community domains
+        allowlist: |
+          twitter.com
+          linkedin.com
+          github.com
+          discord.gg
+          slack.com
+          reddit.com
+          facebook.com
+          youtube.com
+          medium.com
+          dev.to
+
+        # Only include social media URLs
+        exclude-pattern: |
+          ^https?://localhost|^https?://127\.0\.0\.1
+          ^https?://.*\.local|^https?://.*\.test
+          ^\./|^/[^/]|^#
+          ^mailto:|^tel:
+          # Exclude non-social external links
+          ^https?://(?!.*(?:twitter|linkedin|github|discord|slack|reddit|facebook|youtube|medium|dev\.to))
+
+  external-links-by-domain:
+    name: External Links by Domain Type
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        domain_type:
+          - name: 'github-ecosystem'
+            allowlist: 'github.com,docs.github.com,developer.github.com,api.github.com'
+            description: 'GitHub and related services'
+          - name: 'package-managers'
+            allowlist: 'npmjs.com,pypi.org,crates.io,packagist.org,nuget.org'
+            description: 'Package manager repositories'
+          - name: 'documentation-sites'
+            allowlist: 'developer.mozilla.org,www.w3.org,tools.ietf.org,stackoverflow.com'
+            description: 'Technical documentation sites'
+          - name: 'cloud-services'
+            allowlist: 'aws.amazon.com,cloud.google.com,azure.microsoft.com,cloudflare.com'
+            description: 'Cloud service documentation'
+
+      fail-fast: false
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate ${{ matrix.domain_type.name }} links
+      uses: simeg/urlsup-action@v2
+      with:
+        files: '**/*.md'
+        timeout: 18
+        retry: 2
+        concurrency: 10
+
+        allow-status: '200,201,204,301,302,304,429'
+        allow-timeout: true
+        failure-threshold: 8
+
+        # Domain-specific allowlist
+        allowlist: ${{ matrix.domain_type.allowlist }}
+
+        # Exclude internal and other external domains
+        exclude-pattern: |
+          ^https?://localhost|^https?://127\.0\.0\.1
+          ^https?://.*\.local|^https?://.*\.test
+          ^\./|^/[^/]|^#
+          ^mailto:|^tel:
+
+        user-agent: 'Domain-Specific-Validator/1.0 (${{ matrix.domain_type.description }})'
+
+  broken-external-links-analysis:
+    name: Broken External Links Analysis
+    runs-on: ubuntu-latest
+    needs: [external-links-comprehensive]
+    if: always() && needs.external-links-comprehensive.result == 'failure'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Analyze broken external links
+      run: |
+        echo "# Broken External Links Analysis" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "The external link validation found broken links. Here are common causes:" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Common Issues" >> $GITHUB_STEP_SUMMARY
+        echo "- **Rate limiting:** Some sites limit automated requests" >> $GITHUB_STEP_SUMMARY
+        echo "- **Geo-blocking:** Sites may block CI/CD IP ranges" >> $GITHUB_STEP_SUMMARY
+        echo "- **Authentication:** Links requiring login return 401/403" >> $GITHUB_STEP_SUMMARY
+        echo "- **Temporary outages:** Sites may be temporarily down" >> $GITHUB_STEP_SUMMARY
+        echo "- **Changed URLs:** External sites may have moved content" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Recommended Actions" >> $GITHUB_STEP_SUMMARY
+        echo "1. **Check annotations** for specific broken links" >> $GITHUB_STEP_SUMMARY
+        echo "2. **Verify manually** by visiting the URLs" >> $GITHUB_STEP_SUMMARY
+        echo "3. **Update URLs** if content has moved" >> $GITHUB_STEP_SUMMARY
+        echo "4. **Add to allowlist** if the domain is trusted but flaky" >> $GITHUB_STEP_SUMMARY
+        echo "5. **Use archive.org** links for removed content" >> $GITHUB_STEP_SUMMARY
+
+  external-links-health-check:
+    name: External Links Health Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Quick health check of critical external domains
+      run: |
+        echo "Checking health of critical external domains..."
+
+        critical_domains=(
+          "github.com"
+          "docs.github.com"
+          "stackoverflow.com"
+          "developer.mozilla.org"
+          "www.w3.org"
+          "npmjs.com"
+          "pypi.org"
+        )
+
+        echo "## External Domain Health Check" >> $GITHUB_STEP_SUMMARY
+        echo "| Domain | Status | Response Time |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|--------|---------------|" >> $GITHUB_STEP_SUMMARY
+
+        for domain in "${critical_domains[@]}"; do
+          start_time=$(date +%s%N)
+          if curl -s --max-time 10 -o /dev/null -w "%{http_code}" "https://$domain" > /tmp/status; then
+            end_time=$(date +%s%N)
+            duration=$(( (end_time - start_time) / 1000000 ))
+            status=$(cat /tmp/status)
+
+            if [[ $status -eq 200 ]]; then
+              echo "| $domain | ✅ $status | ${duration}ms |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| $domain | ⚠️ $status | ${duration}ms |" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "| $domain | ❌ Failed | - |" >> $GITHUB_STEP_SUMMARY
+          fi
+        done
+
+  external-links-archive:
+    name: Archive Broken External Links
+    runs-on: ubuntu-latest
+    needs: [external-links-comprehensive]
+    if: always() && needs.external-links-comprehensive.result == 'failure'
+
+    steps:
+    - name: Suggest archive.org alternatives
+      run: |
+        echo "## Archive.org Alternatives" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "For broken external links, consider using archive.org:" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "1. **Visit**: https://web.archive.org/" >> $GITHUB_STEP_SUMMARY
+        echo "2. **Search** for the broken URL" >> $GITHUB_STEP_SUMMARY
+        echo "3. **Replace** with archived version like:" >> $GITHUB_STEP_SUMMARY
+        echo "   \`https://web.archive.org/web/20231201000000/https://original-url.com\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Note:** Archive links are more stable but may not reflect latest content." >> $GITHUB_STEP_SUMMARY

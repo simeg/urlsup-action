@@ -1,0 +1,606 @@
+name: CI
+
+on:
+  pull_request:            # validate all PRs
+    branches: ["**"]
+  push:                    # only after merge or when tagging
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  test-python-scripts:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ['3.10', '3.11', '3.12']
+      fail-fast: false
+
+    name: Test Python Scripts (${{ matrix.os }}, Python ${{ matrix.python-version }})
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Load cached venv
+        id: cached-poetry-dependencies
+        uses: actions/cache@v3
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install dependencies
+        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+        run: poetry install --with dev,ci
+
+      - name: Run unit tests
+        run: |
+          make lint validate-examples test-unit
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+  test-action-integration:
+    runs-on: ubuntu-latest
+    name: Test Action Integration
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Cache urlsup binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/urlsup
+          key: urlsup-${{ runner.os }}
+          restore-keys: |
+            urlsup-${{ runner.os }}-
+
+      - name: Install urlsup for integration tests
+        run: |
+          if ! command -v urlsup &> /dev/null; then
+            # Install Rust and Cargo
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            source ~/.cargo/env
+
+            # Install urlsup
+            cargo install urlsup
+          fi
+
+      - name: Generate test repository
+        run: |
+          poetry run python tests/e2e/generate_test_links.py
+
+      - name: Test action with working URLs
+        uses: ./
+        with:
+          files: 'test-links-dir/dir-one/working-urls.md'
+          timeout: 5
+          retry: 2
+          fail-on-error: true
+          create-annotations: true
+
+      - name: Test action with broken URLs (non-failing)
+        uses: ./
+        with:
+          files: 'test-links-dir/dir-one/broken-urls.md'
+          timeout: 5
+          retry: 1
+          fail-on-error: false
+          create-annotations: true
+
+      - name: Test action with mixed URLs and filters
+        uses: ./
+        with:
+          files: 'test-links-dir/'
+          recursive: true
+          include-extensions: 'md,txt'
+          exclude-pattern: 'localhost|127\.0\.0\.1|this-domain-does-not-exist'
+          allowlist: 'github.com,example.com,httpstat.us'
+          allow-status: '200,202,204,301,302,404,500'
+          timeout: 5
+          concurrency: 10
+          fail-on-error: false
+          create-annotations: true
+
+      - name: Test action with telemetry disabled
+        uses: ./
+        with:
+          files: 'test-links-dir/dir-one/working-urls.md'
+          timeout: 5
+          retry: 1
+          fail-on-error: false
+          telemetry: false
+
+  test-script-execution:
+    runs-on: ubuntu-latest
+    name: Test Script Execution
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Test validate and common script functions
+        run: |
+          cd scripts
+          poetry run python -c "
+          import validate
+          from common import ValidationUtils, Telemetry
+          import os
+
+          # Test boolean conversion
+          assert ValidationUtils.to_bool('true') == True
+          assert ValidationUtils.to_bool('false') == False
+          assert ValidationUtils.to_bool('') == False
+          assert ValidationUtils.to_bool(None) == False
+
+          # Test command building with minimal environment
+          os.environ.clear()
+          cmd = validate.build_command()
+          assert '.' in cmd
+          assert '--format' in cmd
+          assert 'json' in cmd
+
+          print('✅ Validate script functions work correctly')
+          "
+
+      - name: Test telemetry functionality
+        run: |
+          cd scripts
+          poetry run python -c "
+          from common import Telemetry, ValidationUtils
+          import os
+          import time
+
+          # Test telemetry enabled
+          os.environ['INPUT_TELEMETRY'] = 'true'
+          assert Telemetry.is_enabled() == True
+
+          # Test telemetry disabled
+          os.environ['INPUT_TELEMETRY'] = 'false'
+          assert Telemetry.is_enabled() == False
+
+          # Test timer functionality
+          os.environ['INPUT_TELEMETRY'] = 'true'
+          Telemetry.start_timer('test')
+          time.sleep(0.01)
+          duration = Telemetry.end_timer('test')
+          assert duration > 0
+
+          # Test metric recording
+          Telemetry.record_metric('test_metric', 'test_value')
+          assert 'test_metric' in Telemetry._metrics
+
+          print('✅ Telemetry functions work correctly')
+          "
+
+      - name: Test annotate script functions
+        run: |
+          cd scripts
+          poetry run python -c "
+          import annotate
+          import tempfile
+          import json
+          from pathlib import Path
+
+          # Test annotation creation (dry run)
+          result = annotate.create_annotation('test.md', 1, 'http://example.com')
+          assert result == True
+
+          # Test report parsing with sample data
+          with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+              json.dump({'issues': []}, f)
+              temp_path = f.name
+
+          count = annotate.process_report(temp_path)
+          assert count == 0
+
+          Path(temp_path).unlink()
+          print('✅ Annotate script functions work correctly')
+          "
+
+      - name: Test summary script functions
+        run: |
+          cd scripts
+          poetry run python -c "
+          import summary
+          import tempfile
+          import os
+          from pathlib import Path
+
+          # Test markdown escaping
+          result = summary.escape_markdown('text|with|pipes')
+          assert result == 'text\\|with\\|pipes'
+
+          # Test summary generation with mock environment
+          with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+              temp_summary = f.name
+
+          os.environ.update({
+              'TOTAL_URLS': '10',
+              'BROKEN_URLS': '2',
+              'SUCCESS_RATE': '80%',
+              'EXIT_CODE': '1',
+              'GITHUB_STEP_SUMMARY': temp_summary
+          })
+
+          summary.generate_summary()
+
+          # Check summary was created
+          assert Path(temp_summary).exists()
+          content = Path(temp_summary).read_text()
+          assert '80%' in content
+          assert '10' in content
+
+          Path(temp_summary).unlink()
+          print('✅ Summary script functions work correctly')
+          "
+
+  test-action-metadata:
+    runs-on: ubuntu-latest
+    name: Validate Action Metadata
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Validate action.yml
+        run: |
+          echo "Validating action.yml metadata..."
+          poetry run python -c "
+          import yaml
+          import sys
+
+          try:
+              with open('action.yml', 'r') as f:
+                  action = yaml.safe_load(f)
+
+              # Check required fields
+              required_fields = ['name', 'description', 'inputs', 'outputs', 'runs']
+              for field in required_fields:
+                  if field not in action:
+                      print(f'❌ Missing required field: {field}')
+                      sys.exit(1)
+
+              # Check that all inputs have descriptions
+              for input_name, input_config in action['inputs'].items():
+                  if 'description' not in input_config:
+                      print(f'❌ Input {input_name} missing description')
+                      sys.exit(1)
+
+              # Check that all outputs have descriptions
+              for output_name, output_config in action['outputs'].items():
+                  if 'description' not in output_config:
+                      print(f'❌ Output {output_name} missing description')
+                      sys.exit(1)
+
+              # Check composite action structure
+              if action['runs']['using'] != 'composite':
+                  print(f'❌ Expected composite action, got: {action[\"runs\"][\"using\"]}')
+                  sys.exit(1)
+
+              print('✅ action.yml is valid and complete')
+
+          except yaml.YAMLError as e:
+              print('❌ action.yml has YAML syntax error:')
+              print(e)
+              sys.exit(1)
+          except Exception as e:
+              print('❌ Error validating action.yml:')
+              print(e)
+              sys.exit(1)
+          "
+
+  test-documentation:
+    runs-on: ubuntu-latest
+    name: Test Documentation
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check documentation completeness
+        run: |
+          echo "Checking documentation completeness..."
+
+          # Check that required files exist
+          required_files=(
+            "README.md"
+            "CHANGELOG.md"
+            "examples/README.md"
+            "examples/configs/README.md"
+          )
+
+          for file in "${required_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Missing required file: $file"
+              exit 1
+            else
+              echo "✅ Found: $file"
+            fi
+          done
+
+          # Check that examples directory has expected structure
+          expected_dirs=(
+            "examples/workflows"
+            "examples/configs"
+            "examples/templates"
+          )
+
+          for dir in "${expected_dirs[@]}"; do
+            if [ ! -d "$dir" ]; then
+              echo "❌ Missing required directory: $dir"
+              exit 1
+            else
+              echo "✅ Found: $dir"
+            fi
+          done
+
+          echo "Documentation structure is complete!"
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Test example generation script
+        run: |
+          echo "Testing test link generation..."
+          cd tests/e2e
+          poetry run python generate_test_links.py
+
+          # Check that test files were created
+          expected_files=(
+            "test-links-dir/dir-one/working-urls.md"
+            "test-links-dir/dir-one/broken-urls.md"
+            "test-links-dir/dir-one/dir-two/mixed-urls.md"
+            "test-links-dir/config-test.md"
+            "test-links-dir/urls.txt"
+            "test-links-dir/documentation.rst"
+            "test-links-dir/page.html"
+          )
+
+          for file in "${expected_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Test file not generated: $file"
+              exit 1
+            else
+              echo "✅ Generated: $file"
+            fi
+          done
+
+          echo "Test repository generation works correctly!"
+
+  lint-and-format:
+    runs-on: ubuntu-latest
+    name: Lint and Format Check
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Check Python formatting with Black
+        run: |
+          echo "Checking Python code formatting..."
+          poetry run black --check --diff scripts/ tests/
+
+      - name: Check import sorting with isort
+        run: |
+          echo "Checking import sorting..."
+          poetry run isort --check-only --diff scripts/ tests/
+
+      - name: Lint with flake8
+        run: |
+          echo "Linting Python code..."
+          poetry run flake8 scripts/ tests/ --max-line-length=100 --ignore=E203,W503,E402
+
+      - name: Check docstrings with pydocstyle
+        run: |
+          echo "Checking docstrings..."
+          make lint-docstrings
+
+      - name: Check for trailing whitespace
+        run: |
+          echo "Checking for trailing whitespace..."
+          if grep -r '[[:space:]]$' scripts/ tests/ examples/ *.md *.yml 2>/dev/null; then
+            echo "❌ Found trailing whitespace in files above"
+            exit 1
+          else
+            echo "✅ No trailing whitespace found"
+          fi
+
+  security-scan:
+    runs-on: ubuntu-latest
+    name: Security Scan
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Run Bandit security scan
+        run: |
+          echo "Running security scan with Bandit..."
+          poetry run bandit -r scripts/ -f json -o bandit-report.json || true
+          poetry run bandit -r scripts/ --severity-level medium
+
+      - name: Check dependencies for known vulnerabilities
+        run: |
+          echo "Checking for known vulnerabilities..."
+          poetry run safety check --output json > safety-report.json || true
+          poetry run safety check
+
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+            safety-report.json
+          retention-days: 30
+
+  summarize-results:
+    needs: [
+      test-python-scripts,
+      test-action-integration,
+      test-script-execution,
+      test-action-metadata,
+      test-documentation,
+      lint-and-format,
+      security-scan
+    ]
+    if: always()
+    runs-on: ubuntu-latest
+    name: CI Summary
+
+    steps:
+      - name: Check overall status
+        run: |
+          echo "## 📊 CI Pipeline Summary"
+          echo ""
+
+          # Check individual job results
+          jobs=(
+            "test-python-scripts:${{ needs.test-python-scripts.result }}"
+            "test-action-integration:${{ needs.test-action-integration.result }}"
+            "test-script-execution:${{ needs.test-script-execution.result }}"
+            "test-action-metadata:${{ needs.test-action-metadata.result }}"
+            "test-documentation:${{ needs.test-documentation.result }}"
+            "lint-and-format:${{ needs.lint-and-format.result }}"
+            "security-scan:${{ needs.security-scan.result }}"
+          )
+
+          all_success=true
+
+          for job in "${jobs[@]}"; do
+            name="${job%:*}"
+            status="${job#*:}"
+
+            case $status in
+              "success")
+                echo "✅ $name"
+                ;;
+              "failure")
+                echo "❌ $name"
+                all_success=false
+                ;;
+              "cancelled")
+                echo "⏹️ $name"
+                all_success=false
+                ;;
+              "skipped")
+                echo "⏭️ $name"
+                ;;
+              *)
+                echo "❓ $name ($status)"
+                all_success=false
+                ;;
+            esac
+          done
+
+          echo ""
+          if [ "$all_success" = true ]; then
+            echo "🎉 All CI checks passed successfully!"
+            exit 0
+          else
+            echo "❌ Some CI checks failed. Please review the job details above."
+            exit 1
+          fi

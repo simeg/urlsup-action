@@ -1,0 +1,41 @@
+name: Basic URL Validation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-urls:
+    runs-on: ubuntu-latest
+    name: Validate URLs in documentation
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate URLs
+        uses: simeg/urlsup-action@v2
+        with:
+          # Check all markdown files in the repository
+          files: '**/*.md'
+
+          # Basic configuration
+          timeout: 5
+          retry: 2
+
+          # Only check common file extensions
+          include-extensions: 'md,rst,txt'
+
+          # Allow common successful status codes
+          allow-status: '200,202,204'
+
+          # Enable GitHub annotations for broken URLs
+          create-annotations: true
+
+          # Fail the workflow if broken URLs are found
+          fail-on-error: true

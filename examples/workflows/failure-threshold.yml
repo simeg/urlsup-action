@@ -1,0 +1,351 @@
+name: Failure Threshold Examples
+
+# This workflow demonstrates how to use failure thresholds to allow
+# a certain number of broken links while still maintaining overall
+# link quality. Useful for large sites where some link breakage is
+# expected but overall quality should be maintained.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly comprehensive check
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      threshold_mode:
+        description: 'Threshold mode to test'
+        required: true
+        default: 'standard'
+        type: choice
+        options:
+        - strict
+        - standard
+        - lenient
+        - adaptive
+
+jobs:
+  strict-threshold:
+    name: Strict Threshold (Production)
+    runs-on: ubuntu-latest
+    if: |
+      github.ref == 'refs/heads/main' ||
+      github.event.inputs.threshold_mode == 'strict'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate with strict threshold
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'README.md docs/critical/ SECURITY.md'
+        timeout: 15
+        retry: 2
+        concurrency: 10
+
+        # Strict settings for critical content
+        failure-threshold: 0  # No broken links allowed
+        fail-on-error: true
+        allow-status: '200,301,302'
+        allow-timeout: false
+
+        # Only most reliable domains
+        allowlist: |
+          github.com
+          docs.github.com
+          www.w3.org
+          developer.mozilla.org
+
+        exclude-pattern: 'localhost|127\.0\.0\.1|example\.com'
+
+  standard-threshold:
+    name: Standard Threshold (Development)
+    runs-on: ubuntu-latest
+    if: |
+      github.ref == 'refs/heads/develop' ||
+      github.event.inputs.threshold_mode == 'standard'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate with standard threshold
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'docs/ README.md CHANGELOG.md'
+        timeout: 12
+        retry: 2
+        concurrency: 15
+
+        # Allow up to 5 broken links
+        failure-threshold: 5
+        fail-on-error: true
+        allow-status: '200,201,202,204,301,302,429'
+        allow-timeout: true
+
+        # Broader allowlist
+        allowlist: |
+          github.com
+          docs.github.com
+          developer.github.com
+          stackoverflow.com
+          developer.mozilla.org
+          npmjs.com
+          pypi.org
+
+        exclude-pattern: |
+          localhost|127\.0\.0\.1
+          example\.com|test\.example
+          staging\.|dev\.
+
+  lenient-threshold:
+    name: Lenient Threshold (Feature Branches)
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' ||
+      github.event.inputs.threshold_mode == 'lenient'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate with lenient threshold
+      uses: simeg/urlsup-action@v2
+      with:
+        files: '**/*.md'
+        timeout: 10
+        retry: 3
+        concurrency: 20
+
+        # Allow up to 15 broken links
+        failure-threshold: 15
+        fail-on-error: false  # Don't fail the workflow
+        allow-status: '200,201,202,204,301,302,400,401,403,404,429,500,502,503'
+        allow-timeout: true
+
+        # Very broad allowlist
+        allowlist: |
+          github.com
+          docs.github.com
+          developer.github.com
+          stackoverflow.com
+          developer.mozilla.org
+          www.w3.org
+          npmjs.com
+          pypi.org
+          crates.io
+          hub.docker.com
+          medium.com
+          dev.to
+
+        exclude-pattern: |
+          localhost|127\.0\.0\.1
+          \.local|\.test
+          example\.com|placeholder\.
+
+  adaptive-threshold:
+    name: Adaptive Threshold (Context-Aware)
+    runs-on: ubuntu-latest
+    if: github.event.inputs.threshold_mode == 'adaptive'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Count total links for adaptive threshold
+      id: count_links
+      run: |
+        total_links=$(grep -r -o 'https\?://[^])\s]*' --include="*.md" . | wc -l)
+        echo "total_links=$total_links" >> $GITHUB_OUTPUT
+
+        # Calculate adaptive threshold (2% of total links, min 2, max 20)
+        threshold=$(( total_links * 2 / 100 ))
+        threshold=$(( threshold < 2 ? 2 : threshold ))
+        threshold=$(( threshold > 20 ? 20 : threshold ))
+        echo "adaptive_threshold=$threshold" >> $GITHUB_OUTPUT
+
+        echo "Found $total_links total links, using threshold of $threshold"
+
+    - name: Validate with adaptive threshold
+      uses: simeg/urlsup-action@v2
+      with:
+        files: '**/*.md'
+        timeout: 12
+        retry: 2
+        concurrency: 15
+
+        # Use calculated adaptive threshold
+        failure-threshold: ${{ steps.count_links.outputs.adaptive_threshold }}
+        fail-on-error: true
+        allow-status: '200,201,202,204,301,302,429'
+        allow-timeout: true
+
+        exclude-pattern: 'localhost|127\.0\.0\.1|example\.com'
+
+  percentage-based-threshold:
+    name: Percentage-Based Threshold
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Calculate percentage-based threshold
+      id: calc_threshold
+      run: |
+        # Count markdown files to estimate link density
+        md_files=$(find . -name "*.md" | wc -l)
+
+        # Estimate ~10 links per markdown file on average
+        estimated_links=$(( md_files * 10 ))
+
+        # Allow 5% failure rate, minimum 3, maximum 25
+        threshold=$(( estimated_links * 5 / 100 ))
+        threshold=$(( threshold < 3 ? 3 : threshold ))
+        threshold=$(( threshold > 25 ? 25 : threshold ))
+
+        echo "threshold=$threshold" >> $GITHUB_OUTPUT
+        echo "Estimated $estimated_links links across $md_files files"
+        echo "Using failure threshold of $threshold (5% tolerance)"
+
+    - name: Validate with percentage-based threshold
+      uses: simeg/urlsup-action@v2
+      with:
+        files: '**/*.md'
+        timeout: 12
+        retry: 2
+        concurrency: 15
+        failure-threshold: ${{ steps.calc_threshold.outputs.threshold }}
+        fail-on-error: true
+        allow-status: '200,201,202,204,301,302,429'
+        allow-timeout: true
+
+  threshold-by-content-type:
+    name: Threshold by Content Type
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        content_type:
+          - name: 'critical-docs'
+            files: 'README.md SECURITY.md LICENSE'
+            threshold: 0
+            fail_on_error: true
+          - name: 'user-docs'
+            files: 'docs/user/ docs/getting-started/'
+            threshold: 2
+            fail_on_error: true
+          - name: 'api-docs'
+            files: 'docs/api/ api/ swagger.json'
+            threshold: 5
+            fail_on_error: true
+          - name: 'blog-content'
+            files: 'blog/ posts/ content/'
+            threshold: 10
+            fail_on_error: false
+          - name: 'misc-docs'
+            files: 'docs/misc/ docs/archive/'
+            threshold: 15
+            fail_on_error: false
+
+      fail-fast: false
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate ${{ matrix.content_type.name }}
+      uses: simeg/urlsup-action@v2
+      with:
+        files: ${{ matrix.content_type.files }}
+        timeout: 12
+        retry: 2
+        concurrency: 15
+        failure-threshold: ${{ matrix.content_type.threshold }}
+        fail-on-error: ${{ matrix.content_type.fail_on_error }}
+        allow-status: '200,201,202,204,301,302,429'
+        allow-timeout: true
+
+  conditional-threshold:
+    name: Conditional Threshold (Branch-Based)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set threshold based on branch
+      id: set_threshold
+      run: |
+        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          threshold=2
+          fail_on_error=true
+          echo "Main branch: strict threshold"
+        elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+          threshold=8
+          fail_on_error=true
+          echo "Develop branch: moderate threshold"
+        else
+          threshold=15
+          fail_on_error=false
+          echo "Feature branch: lenient threshold"
+        fi
+
+        echo "threshold=$threshold" >> $GITHUB_OUTPUT
+        echo "fail_on_error=$fail_on_error" >> $GITHUB_OUTPUT
+
+    - name: Validate with conditional threshold
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'docs/ README.md'
+        timeout: 12
+        retry: 2
+        concurrency: 15
+        failure-threshold: ${{ steps.set_threshold.outputs.threshold }}
+        fail-on-error: ${{ steps.set_threshold.outputs.fail_on_error }}
+        allow-status: '200,201,202,204,301,302,429'
+        allow-timeout: true
+
+  threshold-reporting:
+    name: Threshold Reporting
+    runs-on: ubuntu-latest
+    needs: [standard-threshold]
+    if: always()
+
+    steps:
+    - name: Download validation report
+      uses: actions/download-artifact@v3
+      with:
+        name: urlsup-report
+      continue-on-error: true
+
+    - name: Analyze threshold usage
+      run: |
+        if [[ -f "urlsup-report.json" ]]; then
+          broken_urls=$(jq -r '.issues | length' urlsup-report.json 2>/dev/null || echo "0")
+          total_urls=$(jq -r '.urls.validated // .urls.unique // 0' urlsup-report.json 2>/dev/null || echo "0")
+
+          echo "## Link Quality Report" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total URLs validated:** $total_urls" >> $GITHUB_STEP_SUMMARY
+          echo "- **Broken URLs found:** $broken_urls" >> $GITHUB_STEP_SUMMARY
+
+          if [[ $total_urls -gt 0 ]]; then
+            percentage=$(( broken_urls * 100 / total_urls ))
+            echo "- **Failure rate:** ${percentage}%" >> $GITHUB_STEP_SUMMARY
+
+            if [[ $percentage -le 2 ]]; then
+              echo "- **Quality:** ✅ Excellent" >> $GITHUB_STEP_SUMMARY
+            elif [[ $percentage -le 5 ]]; then
+              echo "- **Quality:** ✅ Good" >> $GITHUB_STEP_SUMMARY
+            elif [[ $percentage -le 10 ]]; then
+              echo "- **Quality:** ⚠️ Acceptable" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- **Quality:** ❌ Needs attention" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+        else
+          echo "⚠️ No validation report found" >> $GITHUB_STEP_SUMMARY
+        fi

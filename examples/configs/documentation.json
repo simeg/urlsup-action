@@ -1,0 +1,40 @@
+{
+  "$schema": "https://raw.githubusercontent.com/simeg/urlsup/main/schema.json",
+  "description": "Configuration for documentation websites (GitBook, MkDocs, Sphinx, etc.)",
+  "timeout": 15,
+  "retry": 3,
+  "retry_delay": 2000,
+  "concurrency": 20,
+  "rate_limit": 200,
+  "allow_status": [200, 202, 204, 301, 302],
+  "allowlist": [
+    "github.com",
+    "docs.github.com",
+    "readthedocs.io",
+    "sphinx-doc.org",
+    "mkdocs.org",
+    "gitbook.com",
+    "stackoverflow.com",
+    "developer.mozilla.org"
+  ],
+  "exclude_patterns": [
+    "localhost",
+    "127\\.0\\.0\\.1",
+    "example\\.com",
+    "todo\\.",
+    "fixme\\.",
+    "tbd\\.",
+    "placeholder\\."
+  ],
+  "user_agent": "documentation-checker/1.0 (+https://github.com/your-org/your-repo)",
+  "include": ["md", "rst", "html", "txt"],
+  "exclude": [
+    "node_modules/",
+    ".git/",
+    "build/",
+    "dist/",
+    "_build/",
+    ".vscode/",
+    ".idea/"
+  ]
+}

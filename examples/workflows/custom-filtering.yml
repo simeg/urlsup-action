@@ -1,0 +1,277 @@
+name: Custom Filtering Examples
+
+# This workflow demonstrates advanced filtering capabilities including
+# allowlists, exclude patterns, status code handling, and domain-specific
+# configurations for different types of content.
+
+on:
+  push:
+    paths:
+      - 'docs/**'
+      - '*.md'
+      - 'content/**'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '*.md'
+      - 'content/**'
+  schedule:
+    # Run weekly on Sundays at 2 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+
+jobs:
+  documentation-links:
+    name: Documentation Links
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate documentation with custom filtering
+      uses: simeg/urlsup-action@v2
+      with:
+        # Target documentation files
+        files: 'docs/ README.md CHANGELOG.md CONTRIBUTING.md'
+        include-extensions: 'md,rst,txt'
+
+        # Network settings
+        timeout: 12
+        retry: 2
+        concurrency: 15
+
+        # Allow documentation-friendly status codes
+        allow-status: '200,201,202,204,301,302,304'
+
+        # Allowlist trusted documentation domains
+        allowlist: |
+          github.com
+          docs.github.com
+          developer.github.com
+          docs.microsoft.com
+          developer.mozilla.org
+          stackoverflow.com
+          www.w3.org
+          tools.ietf.org
+          www.rfc-editor.org
+          npmjs.com
+          pypi.org
+          crates.io
+
+        # Exclude problematic patterns
+        exclude-pattern: |
+          localhost|127\.0\.0\.1|0\.0\.0\.0
+          \.local|\.test|\.example
+          example\.com|example\.org|example\.net
+          todo\.|fixme\.|placeholder\.
+          \#TODO|\#FIXME|\#PLACEHOLDER
+          your-domain\.com|your-api\.com
+          INSERT_|REPLACE_|UPDATE_
+
+        # Don't fail on timeout for external docs
+        allow-timeout: true
+        failure-threshold: 5
+
+  api-documentation:
+    name: API Documentation Links
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate API docs with extended timeouts
+      uses: simeg/urlsup-action@v2
+      with:
+        # Target API documentation
+        files: 'api-docs/ docs/api/ openapi.yml swagger.json'
+
+        # Longer timeouts for API endpoints
+        timeout: 30
+        retry: 3
+        retry-delay: 5
+        concurrency: 5
+
+        # API-friendly status codes
+        allow-status: '200,201,202,204,301,302,400,401,403,404,429'
+
+        # Allow API domains
+        allowlist: |
+          api.github.com
+          httpbin.org
+          jsonplaceholder.typicode.com
+          reqres.in
+          postman-echo.com
+          httpstat.us
+
+        # Exclude test/mock URLs
+        exclude-pattern: |
+          localhost:3000|127\.0\.0\.1:8080
+          mock\.|test\.|demo\.
+          example-api\.com
+          \{.*\}|\$\{.*\}
+          __API_KEY__|__TOKEN__
+
+        # Custom user agent for API validation
+        user-agent: 'API-Docs-Validator/1.0 (+https://github.com/your-org/your-repo)'
+
+  external-links-only:
+    name: External Links Only
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate only external links
+      uses: simeg/urlsup-action@v2
+      with:
+        files: '**/*.md'
+        timeout: 15
+        retry: 3
+        concurrency: 20
+
+        # Focus on external links
+        exclude-pattern: |
+          ^https?://localhost
+          ^https?://127\.0\.0\.1
+          ^https?://0\.0\.0\.0
+          ^https?://.*\.local
+          ^https?://your-domain\.com
+          ^https?://.*\.example\.com
+          ^\./|^/[^/]|^#
+          ^mailto:|^tel:|^ftp:
+
+        # Allow common redirect codes
+        allow-status: '200,201,202,204,301,302,304,429'
+
+        # Allowlist known good external domains
+        allowlist: |
+          github.com
+          gitlab.com
+          bitbucket.org
+          stackoverflow.com
+          developer.mozilla.org
+          www.w3.org
+          npmjs.com
+          pypi.org
+          crates.io
+          hub.docker.com
+
+  strict-validation:
+    name: Strict Validation (Production)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Strict URL validation for production
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'README.md docs/production/'
+        timeout: 20
+        retry: 1
+        concurrency: 5
+
+        # Only allow successful responses
+        allow-status: '200,301,302'
+        allow-timeout: false
+
+        # Zero tolerance for broken links
+        failure-threshold: 0
+        fail-on-error: true
+
+        # Minimal allowlist - only trusted domains
+        allowlist: |
+          github.com
+          docs.github.com
+          www.w3.org
+
+        # Exclude all non-production URLs
+        exclude-pattern: |
+          localhost|127\.0\.0\.1
+          \.local|\.test|\.dev
+          staging\.|dev\.|test\.
+          example\.|placeholder\.
+          todo\.|fixme\.
+
+  content-type-filtering:
+    name: Content Type Specific Filtering
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate blog posts
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'blog/ posts/ content/posts/'
+        include-extensions: 'md,mdx'
+        timeout: 10
+        retry: 2
+
+        # Blog-friendly settings
+        allow-status: '200,301,302,410'  # 410 for intentionally gone content
+        failure-threshold: 3
+
+        # Common blog/content domains
+        allowlist: |
+          medium.com
+          dev.to
+          hashnode.com
+          substack.com
+          blog.github.com
+          css-tricks.com
+          a11yproject.com
+
+        exclude-pattern: |
+          draft\.|unpublished\.
+          \[DRAFT\]|\[TODO\]
+          coming-soon\.|placeholder\.
+
+  security-focused:
+    name: Security Focused Validation
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate with security considerations
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'security/ docs/security/ SECURITY.md'
+        timeout: 25
+        retry: 2
+        concurrency: 3
+
+        # Conservative status codes
+        allow-status: '200,301,302'
+
+        # Security-related domains
+        allowlist: |
+          cve.mitre.org
+          nvd.nist.gov
+          owasp.org
+          security.github.com
+          docs.github.com/security
+          cheatsheetseries.owasp.org
+
+        # Exclude potentially sensitive patterns
+        exclude-pattern: |
+          localhost|127\.0\.0\.1
+          internal\.|private\.
+          admin\.|management\.
+          \{token\}|\{key\}|\{secret\}
+          example-key|dummy-token
+
+        # Use specific user agent
+        user-agent: 'Security-Docs-Validator/1.0'
+
+        # Strict validation for security docs
+        fail-on-error: true
+        failure-threshold: 0
