@@ -1,5 +1,5 @@
-name: 'URL Validator'
-description: 'Fast, concurrent URL validation for files in your repository using urlsup'
+name: 'urlsup - URL Validator'
+description: 'Fast, concurrent URL validation for files in your repository using the powerful urlsup'
 author: 'Simon Egersand'
 
 inputs:
