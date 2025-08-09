@@ -1,0 +1,40 @@
+{
+  "$schema": "https://raw.githubusercontent.com/simeg/urlsup/main/schema.json",
+  "description": "Strict configuration for production environments - fail fast on any issues",
+  "timeout": 10,
+  "retry": 0,
+  "concurrency": 10,
+  "rate_limit": 500,
+  "allow_status": [200],
+  "allowlist": [],
+  "exclude_patterns": [
+    "localhost",
+    "127\\.0\\.0\\.1",
+    "\\.local",
+    "staging\\.",
+    "dev\\.",
+    "test\\.",
+    "mock\\.",
+    "example\\.com",
+    "placeholder\\.",
+    "todo\\.",
+    "fixme\\.",
+    "tbd\\."
+  ],
+  "user_agent": "strict-url-checker/1.0 (+https://github.com/your-org/your-repo)",
+  "include": ["md", "rst", "txt", "html"],
+  "exclude": [
+    "node_modules/",
+    ".git/",
+    "build/",
+    "dist/",
+    "coverage/",
+    "logs/",
+    "tmp/",
+    "temp/",
+    ".cache/",
+    ".vscode/",
+    ".idea/"
+  ],
+  "failure_threshold": 0
+}

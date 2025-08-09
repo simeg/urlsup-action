@@ -1,0 +1,128 @@
+[tool.poetry]
+name = "urlsup-action"
+version = "0.0.0" # Irrelevant as this is just used for testing
+description = ""
+authors = []
+readme = ""
+license = ""
+homepage = "https://github.com/simeg/urlsup-action"
+repository = "https://github.com/simeg/urlsup-action"
+documentation = "https://github.com/simeg/urlsup-action"
+keywords = []
+classifiers = []
+package-mode = false # Only use poetry for dependency management, not packaging
+
+[tool.poetry.dependencies]
+python = "^3.10.0"
+# Security constraints for vulnerable transitive dependencies
+setuptools = ">=78.1.1"
+urllib3 = ">=2.5.0"
+
+[tool.poetry.group.dev.dependencies]
+# Testing
+pytest = "^7.4.0"
+pytest-cov = "^4.1.0"
+pytest-mock = "^3.11.0"
+
+# Code quality
+black = "^25.0.0"
+isort = "^5.12.0"
+flake8 = "^6.0.0"
+pydocstyle = "^6.3.0"
+
+# Security
+bandit = "^1.7.0"
+safety = "^2.3.0"
+
+# Utilities
+pyyaml = "^6.0"
+
+[tool.poetry.group.ci.dependencies]
+# Additional CI-only dependencies
+coverage = {extras = ["toml"], version = "^7.0.0"}
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+# Tool configurations
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | node_modules
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+src_paths = ["scripts", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--verbose",
+    "--tb=short",
+    "--strict-markers",
+    "--strict-config",
+    "--disable-warnings"
+]
+markers = [
+    "unit: Unit tests for individual functions",
+    "integration: Integration tests that require external dependencies", 
+    "e2e: End-to-end tests that test the full action",
+    "slow: Tests that take a long time to run",
+    "network: Tests that require network access"
+]
+minversion = "6.0"
+
+[tool.coverage.run]
+source = ["scripts"]
+omit = [
+    "tests/*",
+    "*/test_*"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError", 
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod"
+]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101"]  # Skip assert_used test
+
+[tool.pydocstyle]
+inherit = false
+ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D107"]
+match = "(?!test_).*\\.py"

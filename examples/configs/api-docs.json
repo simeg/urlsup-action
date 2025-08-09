@@ -1,0 +1,47 @@
+{
+  "$schema": "https://raw.githubusercontent.com/simeg/urlsup/main/schema.json",
+  "description": "Configuration for API documentation with longer timeouts for live endpoints",
+  "timeout": 60,
+  "retry": 5,
+  "retry_delay": 3000,
+  "concurrency": 5,
+  "rate_limit": 1000,
+  "allow_timeout": true,
+  "allow_status": [200, 201, 202, 204, 301, 302, 401, 403, 429],
+  "allowlist": [
+    "api.github.com",
+    "httpbin.org",
+    "jsonplaceholder.typicode.com",
+    "reqres.in",
+    "postman-echo.com",
+    "swagger.io",
+    "openapi.org",
+    "*.herokuapp.com",
+    "*.vercel.app",
+    "*.netlify.app"
+  ],
+  "exclude_patterns": [
+    "localhost",
+    "127\\.0\\.0\\.1",
+    "\\.local",
+    "staging\\.",
+    "dev\\.",
+    "test\\.",
+    "mock\\.",
+    "example\\.com",
+    "your-api\\.",
+    "api\\.example"
+  ],
+  "user_agent": "api-docs-checker/1.0 (+https://github.com/your-org/your-repo)",
+  "include": ["md", "rst", "json", "yaml", "yml", "html"],
+  "exclude": [
+    "node_modules/",
+    ".git/",
+    "vendor/",
+    "__pycache__/",
+    ".pytest_cache/",
+    "coverage/",
+    "logs/"
+  ],
+  "failure_threshold": 10
+}

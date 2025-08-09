@@ -1,0 +1,545 @@
+name: Notification Integration Examples
+
+# This workflow demonstrates integration with popular notification
+# services like Slack, Microsoft Teams, Discord, and email for
+# URL validation results and alerts.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly comprehensive check with notifications
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+    inputs:
+      notification_type:
+        description: 'Notification service to test'
+        required: true
+        default: 'slack'
+        type: choice
+        options:
+        - slack
+        - teams
+        - discord
+        - email
+        - all
+
+jobs:
+  url-validation:
+    name: URL Validation
+    runs-on: ubuntu-latest
+    outputs:
+      total-urls: ${{ steps.validate.outputs.total-urls }}
+      broken-urls: ${{ steps.validate.outputs.broken-urls }}
+      success-rate: ${{ steps.validate.outputs.success-rate }}
+      report-path: ${{ steps.validate.outputs.report-path }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate URLs
+      id: validate
+      uses: simeg/urlsup-action@v2
+      with:
+        files: '**/*.md'
+        timeout: 15
+        retry: 2
+        concurrency: 15
+        allow-status: '200,201,202,204,301,302,429'
+        allow-timeout: true
+        failure-threshold: 5
+        fail-on-error: false  # Don't fail so notifications can run
+
+    - name: Upload validation report
+      uses: actions/upload-artifact@v3
+      with:
+        name: validation-report
+        path: urlsup-report.json
+        retention-days: 7
+
+  slack-notification:
+    name: Slack Notification
+    runs-on: ubuntu-latest
+    needs: url-validation
+    if: |
+      always() &&
+      (github.event.inputs.notification_type == 'slack' ||
+       github.event.inputs.notification_type == 'all' ||
+       github.event_name != 'workflow_dispatch')
+
+    steps:
+    - name: Prepare Slack message
+      id: slack_message
+      run: |
+        total_urls="${{ needs.url-validation.outputs.total-urls }}"
+        broken_urls="${{ needs.url-validation.outputs.broken-urls }}"
+        success_rate="${{ needs.url-validation.outputs.success-rate }}"
+
+        if [[ "$broken_urls" -eq 0 ]]; then
+          emoji="✅"
+          color="good"
+          status="All URLs are working!"
+        elif [[ "$broken_urls" -le 5 ]]; then
+          emoji="⚠️"
+          color="warning"
+          status="Some URLs need attention"
+        else
+          emoji="❌"
+          color="danger"
+          status="Multiple broken URLs found"
+        fi
+
+        # Create Slack message payload
+        cat > slack_message.json << EOF
+        {
+          "attachments": [
+            {
+              "color": "$color",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "$emoji URL Validation Report"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Repository:*\n${{ github.repository }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch:*\n${{ github.ref_name }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Total URLs:*\n$total_urls"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Broken URLs:*\n$broken_urls"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Success Rate:*\n$success_rate"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Status:*\n$status"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Workflow"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+        EOF
+
+        echo "message_file=slack_message.json" >> $GITHUB_OUTPUT
+
+    - name: Send Slack notification
+      uses: 8398a7/action-slack@v3
+      with:
+        status: custom
+        custom_payload: |
+          ${{ steps.slack_message.outputs.message_file }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  teams-notification:
+    name: Microsoft Teams Notification
+    runs-on: ubuntu-latest
+    needs: url-validation
+    if: |
+      always() &&
+      (github.event.inputs.notification_type == 'teams' ||
+       github.event.inputs.notification_type == 'all')
+
+    steps:
+    - name: Prepare Teams message
+      id: teams_message
+      run: |
+        total_urls="${{ needs.url-validation.outputs.total-urls }}"
+        broken_urls="${{ needs.url-validation.outputs.broken-urls }}"
+        success_rate="${{ needs.url-validation.outputs.success-rate }}"
+
+        if [[ "$broken_urls" -eq 0 ]]; then
+          theme_color="00FF00"
+          status="✅ All URLs are working!"
+        elif [[ "$broken_urls" -le 5 ]]; then
+          theme_color="FFA500"
+          status="⚠️ Some URLs need attention"
+        else
+          theme_color="FF0000"
+          status="❌ Multiple broken URLs found"
+        fi
+
+        # Create Teams message payload
+        cat > teams_message.json << EOF
+        {
+          "@type": "MessageCard",
+          "@context": "http://schema.org/extensions",
+          "themeColor": "$theme_color",
+          "summary": "URL Validation Report",
+          "sections": [
+            {
+              "activityTitle": "URL Validation Report",
+              "activitySubtitle": "${{ github.repository }}",
+              "activityImage": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
+              "facts": [
+                {
+                  "name": "Repository",
+                  "value": "${{ github.repository }}"
+                },
+                {
+                  "name": "Branch",
+                  "value": "${{ github.ref_name }}"
+                },
+                {
+                  "name": "Total URLs",
+                  "value": "$total_urls"
+                },
+                {
+                  "name": "Broken URLs",
+                  "value": "$broken_urls"
+                },
+                {
+                  "name": "Success Rate",
+                  "value": "$success_rate"
+                },
+                {
+                  "name": "Status",
+                  "value": "$status"
+                }
+              ]
+            }
+          ],
+          "potentialAction": [
+            {
+              "@type": "OpenUri",
+              "name": "View Workflow",
+              "targets": [
+                {
+                  "os": "default",
+                  "uri": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                }
+              ]
+            }
+          ]
+        }
+        EOF
+
+        echo "message_file=teams_message.json" >> $GITHUB_OUTPUT
+
+    - name: Send Teams notification
+      run: |
+        curl -H "Content-Type: application/json" \
+             -d @teams_message.json \
+             "${{ secrets.TEAMS_WEBHOOK_URL }}"
+
+  discord-notification:
+    name: Discord Notification
+    runs-on: ubuntu-latest
+    needs: url-validation
+    if: |
+      always() &&
+      (github.event.inputs.notification_type == 'discord' ||
+       github.event.inputs.notification_type == 'all')
+
+    steps:
+    - name: Prepare Discord message
+      id: discord_message
+      run: |
+        total_urls="${{ needs.url-validation.outputs.total-urls }}"
+        broken_urls="${{ needs.url-validation.outputs.broken-urls }}"
+        success_rate="${{ needs.url-validation.outputs.success-rate }}"
+
+        if [[ "$broken_urls" -eq 0 ]]; then
+          color=65280  # Green
+          status="✅ All URLs are working!"
+        elif [[ "$broken_urls" -le 5 ]]; then
+          color=16776960  # Orange
+          status="⚠️ Some URLs need attention"
+        else
+          color=16711680  # Red
+          status="❌ Multiple broken URLs found"
+        fi
+
+        # Create Discord embed payload
+        cat > discord_message.json << EOF
+        {
+          "content": "**URL Validation Report**",
+          "embeds": [
+            {
+              "title": "URL Validation Results",
+              "description": "$status",
+              "color": $color,
+              "fields": [
+                {
+                  "name": "Repository",
+                  "value": "${{ github.repository }}",
+                  "inline": true
+                },
+                {
+                  "name": "Branch",
+                  "value": "${{ github.ref_name }}",
+                  "inline": true
+                },
+                {
+                  "name": "Total URLs",
+                  "value": "$total_urls",
+                  "inline": true
+                },
+                {
+                  "name": "Broken URLs",
+                  "value": "$broken_urls",
+                  "inline": true
+                },
+                {
+                  "name": "Success Rate",
+                  "value": "$success_rate",
+                  "inline": true
+                },
+                {
+                  "name": "Workflow",
+                  "value": "[View Details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})",
+                  "inline": true
+                }
+              ],
+              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
+              "footer": {
+                "text": "URL Validation Bot"
+              }
+            }
+          ]
+        }
+        EOF
+
+        echo "message_file=discord_message.json" >> $GITHUB_OUTPUT
+
+    - name: Send Discord notification
+      run: |
+        curl -H "Content-Type: application/json" \
+             -d @discord_message.json \
+             "${{ secrets.DISCORD_WEBHOOK_URL }}"
+
+  email-notification:
+    name: Email Notification
+    runs-on: ubuntu-latest
+    needs: url-validation
+    if: |
+      always() &&
+      (github.event.inputs.notification_type == 'email' ||
+       github.event.inputs.notification_type == 'all')
+
+    steps:
+    - name: Download validation report
+      uses: actions/download-artifact@v3
+      with:
+        name: validation-report
+      continue-on-error: true
+
+    - name: Prepare email content
+      id: email_content
+      run: |
+        total_urls="${{ needs.url-validation.outputs.total-urls }}"
+        broken_urls="${{ needs.url-validation.outputs.broken-urls }}"
+        success_rate="${{ needs.url-validation.outputs.success-rate }}"
+
+        if [[ "$broken_urls" -eq 0 ]]; then
+          subject="✅ URL Validation: All links working - ${{ github.repository }}"
+          priority="normal"
+        elif [[ "$broken_urls" -le 5 ]]; then
+          subject="⚠️ URL Validation: $broken_urls broken links - ${{ github.repository }}"
+          priority="normal"
+        else
+          subject="❌ URL Validation: $broken_urls broken links - ${{ github.repository }}"
+          priority="high"
+        fi
+
+        # Create HTML email content
+        cat > email_body.html << EOF
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                .header { background-color: #f6f8fa; padding: 20px; border-radius: 8px; }
+                .stats { background-color: #fff; border: 1px solid #d1d9e0; padding: 15px; border-radius: 8px; margin: 10px 0; }
+                .success { color: #28a745; }
+                .warning { color: #ffc107; }
+                .danger { color: #dc3545; }
+                .button { background-color: #0366d6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; display: inline-block; margin: 10px 0; }
+                table { border-collapse: collapse; width: 100%; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f2f2f2; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h2>URL Validation Report</h2>
+                <p><strong>Repository:</strong> ${{ github.repository }}</p>
+                <p><strong>Branch:</strong> ${{ github.ref_name }}</p>
+                <p><strong>Workflow:</strong> ${{ github.workflow }}</p>
+                <p><strong>Run:</strong> #${{ github.run_number }}</p>
+            </div>
+
+            <div class="stats">
+                <h3>Validation Results</h3>
+                <table>
+                    <tr><th>Metric</th><th>Value</th></tr>
+                    <tr><td>Total URLs Validated</td><td>$total_urls</td></tr>
+                    <tr><td>Broken URLs</td><td class="$([ $broken_urls -eq 0 ] && echo 'success' || echo 'danger')">$broken_urls</td></tr>
+                    <tr><td>Success Rate</td><td>$success_rate</td></tr>
+                    <tr><td>Validation Time</td><td>$(date -u)</td></tr>
+                </table>
+            </div>
+
+            <div>
+                <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" class="button">
+                    View Full Report
+                </a>
+            </div>
+
+            <div style="margin-top: 20px; padding: 10px; background-color: #f8f9fa; border-radius: 6px;">
+                <p><em>This email was sent automatically by the URL Validation workflow.</em></p>
+            </div>
+        </body>
+        </html>
+        EOF
+
+        echo "subject=$subject" >> $GITHUB_OUTPUT
+        echo "priority=$priority" >> $GITHUB_OUTPUT
+        echo "body_file=email_body.html" >> $GITHUB_OUTPUT
+
+    - name: Send email notification
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: ${{ secrets.SMTP_SERVER }}
+        server_port: ${{ secrets.SMTP_PORT }}
+        username: ${{ secrets.SMTP_USERNAME }}
+        password: ${{ secrets.SMTP_PASSWORD }}
+        subject: ${{ steps.email_content.outputs.subject }}
+        to: ${{ secrets.NOTIFICATION_EMAIL }}
+        from: ${{ secrets.SMTP_FROM_EMAIL }}
+        html_body: file://email_body.html
+        priority: ${{ steps.email_content.outputs.priority }}
+        attachments: urlsup-report.json
+
+  custom-webhook-notification:
+    name: Custom Webhook Notification
+    runs-on: ubuntu-latest
+    needs: url-validation
+    if: always()
+
+    steps:
+    - name: Send custom webhook
+      run: |
+        # Custom webhook payload
+        cat > webhook_payload.json << EOF
+        {
+          "event": "url_validation_complete",
+          "repository": "${{ github.repository }}",
+          "branch": "${{ github.ref_name }}",
+          "workflow_run_id": "${{ github.run_id }}",
+          "results": {
+            "total_urls": "${{ needs.url-validation.outputs.total-urls }}",
+            "broken_urls": "${{ needs.url-validation.outputs.broken-urls }}",
+            "success_rate": "${{ needs.url-validation.outputs.success-rate }}",
+            "report_available": true
+          },
+          "metadata": {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
+            "event_name": "${{ github.event_name }}",
+            "actor": "${{ github.actor }}",
+            "sha": "${{ github.sha }}"
+          }
+        }
+        EOF
+
+        # Send to custom webhook if configured
+        if [[ -n "${{ secrets.CUSTOM_WEBHOOK_URL }}" ]]; then
+          curl -X POST \
+               -H "Content-Type: application/json" \
+               -H "Authorization: Bearer ${{ secrets.CUSTOM_WEBHOOK_TOKEN }}" \
+               -d @webhook_payload.json \
+               "${{ secrets.CUSTOM_WEBHOOK_URL }}"
+        else
+          echo "No custom webhook URL configured"
+        fi
+
+  notification-summary:
+    name: Notification Summary
+    runs-on: ubuntu-latest
+    needs: [url-validation, slack-notification, teams-notification, discord-notification, email-notification]
+    if: always()
+
+    steps:
+    - name: Create notification summary
+      run: |
+        echo "# Notification Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## URL Validation Results" >> $GITHUB_STEP_SUMMARY
+        echo "- **Total URLs:** ${{ needs.url-validation.outputs.total-urls }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Broken URLs:** ${{ needs.url-validation.outputs.broken-urls }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Success Rate:** ${{ needs.url-validation.outputs.success-rate }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Notification Status" >> $GITHUB_STEP_SUMMARY
+
+        # Check each notification service
+        if [[ "${{ needs.slack-notification.result }}" == "success" ]]; then
+          echo "- ✅ **Slack:** Notification sent successfully" >> $GITHUB_STEP_SUMMARY
+        elif [[ "${{ needs.slack-notification.result }}" == "failure" ]]; then
+          echo "- ❌ **Slack:** Notification failed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- ⏭️ **Slack:** Notification skipped" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [[ "${{ needs.teams-notification.result }}" == "success" ]]; then
+          echo "- ✅ **Teams:** Notification sent successfully" >> $GITHUB_STEP_SUMMARY
+        elif [[ "${{ needs.teams-notification.result }}" == "failure" ]]; then
+          echo "- ❌ **Teams:** Notification failed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- ⏭️ **Teams:** Notification skipped" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [[ "${{ needs.discord-notification.result }}" == "success" ]]; then
+          echo "- ✅ **Discord:** Notification sent successfully" >> $GITHUB_STEP_SUMMARY
+        elif [[ "${{ needs.discord-notification.result }}" == "failure" ]]; then
+          echo "- ❌ **Discord:** Notification failed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- ⏭️ **Discord:** Notification skipped" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [[ "${{ needs.email-notification.result }}" == "success" ]]; then
+          echo "- ✅ **Email:** Notification sent successfully" >> $GITHUB_STEP_SUMMARY
+        elif [[ "${{ needs.email-notification.result }}" == "failure" ]]; then
+          echo "- ❌ **Email:** Notification failed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- ⏭️ **Email:** Notification skipped" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Setup Instructions" >> $GITHUB_STEP_SUMMARY
+        echo "To enable notifications, configure these repository secrets:" >> $GITHUB_STEP_SUMMARY
+        echo "- **Slack:** \`SLACK_WEBHOOK_URL\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Teams:** \`TEAMS_WEBHOOK_URL\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Discord:** \`DISCORD_WEBHOOK_URL\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Email:** \`SMTP_SERVER\`, \`SMTP_PORT\`, \`SMTP_USERNAME\`, \`SMTP_PASSWORD\`, \`NOTIFICATION_EMAIL\`, \`SMTP_FROM_EMAIL\`" >> $GITHUB_STEP_SUMMARY

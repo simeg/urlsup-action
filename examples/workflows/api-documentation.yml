@@ -1,0 +1,399 @@
+name: API Documentation URL Validation
+
+# This workflow is specifically designed for API documentation with
+# longer timeouts, API-specific status codes, and handling of
+# OpenAPI/Swagger specifications and API endpoint validation.
+
+on:
+  push:
+    paths:
+      - 'api/**'
+      - 'docs/api/**'
+      - '**/openapi.yml'
+      - '**/swagger.json'
+      - '**/api.md'
+  pull_request:
+    paths:
+      - 'api/**'
+      - 'docs/api/**'
+      - '**/openapi.yml'
+      - '**/swagger.json'
+      - '**/api.md'
+  schedule:
+    # Check API docs twice daily (APIs change frequently)
+    - cron: '0 6,18 * * *'
+  workflow_dispatch:
+    inputs:
+      api_environment:
+        description: 'API environment to validate'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+        - sandbox
+        - all
+
+jobs:
+  api-docs-validation:
+    name: API Documentation Links
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate API documentation links
+      uses: simeg/urlsup-action@v2
+      with:
+        # Target API documentation files
+        files: |
+          docs/api/
+          api/
+          openapi.yml
+          swagger.json
+          api.md
+          docs/endpoints/
+          docs/reference/
+
+        include-extensions: 'md,yml,yaml,json,rst'
+
+        # Extended timeouts for API endpoints
+        timeout: 45
+        retry: 3
+        retry-delay: 5
+        concurrency: 8
+        rate-limit: 60
+
+        # API-friendly status codes
+        allow-status: |
+          200,201,202,204
+          301,302,304
+          400,401,403,404,405,409,422,429
+          500,502,503
+
+        # Allow timeouts for slow APIs
+        allow-timeout: true
+        failure-threshold: 8
+
+        # API documentation domains
+        allowlist: |
+          api.github.com
+          docs.github.com/rest
+          httpbin.org
+          jsonplaceholder.typicode.com
+          reqres.in
+          postman-echo.com
+          httpstat.us
+          swagger.io
+          spec.openapis.org
+          tools.ietf.org
+          datatracker.ietf.org
+
+        # Exclude API template/example URLs
+        exclude-pattern: |
+          localhost:3000|127\.0\.0\.1:8080
+          mock\.|test\.|demo\.|sandbox\.
+          example-api\.com|api\.example\.com
+          \{.*\}|\$\{.*\}|\<.*\>
+          __API_KEY__|__TOKEN__|__SECRET__
+          YOUR_API_KEY|YOUR_TOKEN
+          placeholder\.|template\.
+
+        # Custom user agent for API validation
+        user-agent: 'API-Documentation-Validator/1.0 (+https://github.com/your-org/api-docs)'
+
+  openapi-spec-validation:
+    name: OpenAPI Specification Links
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate OpenAPI specification links
+      uses: simeg/urlsup-action@v2
+      with:
+        # Focus on OpenAPI/Swagger files
+        files: |
+          openapi.yml
+          openapi.yaml
+          swagger.json
+          swagger.yml
+          spec/
+          schemas/
+
+        # Very extended timeouts for API specs
+        timeout: 60
+        retry: 4
+        retry-delay: 8
+        concurrency: 4
+        rate-limit: 120
+
+        # OpenAPI-specific status codes
+        allow-status: '200,201,204,301,302,400,401,403,404,422,429'
+        allow-timeout: true
+        failure-threshold: 5
+
+        # OpenAPI and specification domains
+        allowlist: |
+          spec.openapis.org
+          swagger.io
+          json-schema.org
+          tools.ietf.org
+          datatracker.ietf.org
+          github.com/OAI
+
+        # Exclude OpenAPI template patterns
+        exclude-pattern: |
+          \{[^}]*\}|\$\{[^}]*\}
+          example\.com|api\.example
+          localhost|127\.0\.0\.1
+          \<[^>]*\>|__.*__|YOUR_.*
+
+        # Specification-specific user agent
+        user-agent: 'OpenAPI-Validator/1.0'
+
+  api-endpoint-validation:
+    name: API Endpoint Validation
+    runs-on: ubuntu-latest
+    if: |
+      github.event.inputs.api_environment == 'staging' ||
+      github.event.inputs.api_environment == 'all' ||
+      github.event_name != 'workflow_dispatch'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate staging API endpoints
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'docs/api/ api/ endpoints.md'
+
+        # Very long timeouts for actual API calls
+        timeout: 90
+        retry: 2
+        retry-delay: 10
+        concurrency: 3
+        rate-limit: 180
+
+        # Accept various API response codes
+        allow-status: |
+          200,201,202,204
+          301,302
+          400,401,403,404,405,422,429
+          500,502,503,504
+
+        allow-timeout: true
+        failure-threshold: 12
+
+        # Staging API domains
+        allowlist: |
+          api-staging.example.com
+          staging-api.example.com
+          dev.example.com/api
+          test-api.example.com
+
+        # Exclude production and template URLs
+        exclude-pattern: |
+          api\.example\.com$
+          production-api\.
+          \{.*\}|\$\{.*\}
+          localhost|127\.0\.0\.1
+
+        user-agent: 'API-Staging-Validator/1.0'
+
+  production-api-validation:
+    name: Production API Validation
+    runs-on: ubuntu-latest
+    if: |
+      github.ref == 'refs/heads/main' ||
+      github.event.inputs.api_environment == 'production' ||
+      github.event.inputs.api_environment == 'all'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate production API endpoints
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'docs/api/production/ README.md'
+
+        # Conservative settings for production
+        timeout: 60
+        retry: 1
+        retry-delay: 15
+        concurrency: 2
+        rate-limit: 300
+
+        # Strict status codes for production
+        allow-status: '200,201,204,301,302,400,401,403,404,429'
+        allow-timeout: false
+        failure-threshold: 2
+        fail-on-error: true
+
+        # Production API domains only
+        allowlist: |
+          api.example.com
+          production-api.example.com
+          api.your-domain.com
+
+        exclude-pattern: |
+          staging\.|test\.|dev\.
+          \{.*\}|\$\{.*\}
+          localhost|127\.0\.0\.1
+
+        user-agent: 'API-Production-Validator/1.0'
+
+  rest-api-validation:
+    name: REST API Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate REST API documentation
+      uses: simeg/urlsup-action@v2
+      with:
+        files: |
+          docs/rest/
+          docs/api/rest/
+          rest-api.md
+          endpoints.md
+
+        timeout: 30
+        retry: 3
+        concurrency: 6
+        rate-limit: 45
+
+        # REST-specific status codes
+        allow-status: |
+          200,201,202,204
+          301,302
+          400,401,403,404,405,409,422,429
+
+        # REST API domains
+        allowlist: |
+          docs.github.com/rest
+          developer.github.com
+          api.github.com
+          httpbin.org
+          reqres.in
+
+        exclude-pattern: |
+          \{id\}|\{userId\}|\{resourceId\}
+          example\.com/api
+          localhost|127\.0\.0\.1
+
+  graphql-api-validation:
+    name: GraphQL API Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate GraphQL API documentation
+      uses: simeg/urlsup-action@v2
+      with:
+        files: |
+          docs/graphql/
+          docs/api/graphql/
+          graphql.md
+          schema.graphql
+
+        timeout: 40
+        retry: 3
+        concurrency: 5
+        rate-limit: 60
+
+        # GraphQL-specific status codes
+        allow-status: '200,400,401,403,429'
+
+        # GraphQL domains
+        allowlist: |
+          docs.github.com/graphql
+          api.github.com/graphql
+          graphql.org
+          spec.graphql.org
+
+        exclude-pattern: |
+          \$\{.*\}|\{.*\}
+          example\.com/graphql
+          localhost|127\.0\.0\.1
+
+  sdk-examples-validation:
+    name: SDK Examples Validation
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate SDK examples
+      uses: simeg/urlsup-action@v2
+      with:
+        files: |
+          docs/sdk/
+          examples/
+          samples/
+          code-examples/
+
+        timeout: 25
+        retry: 2
+        concurrency: 10
+
+        # SDK-friendly status codes
+        allow-status: '200,201,204,301,302,404,429'
+        failure-threshold: 15
+
+        # SDK and package manager domains
+        allowlist: |
+          npmjs.com
+          pypi.org
+          crates.io
+          packagist.org
+          nuget.org
+          hub.docker.com
+          github.com
+
+        exclude-pattern: |
+          localhost|127\.0\.0\.1
+          example\.com|test\.example
+          \{.*\}|__.*__|YOUR_.*
+
+  api-status-dashboard:
+    name: API Status Dashboard
+    runs-on: ubuntu-latest
+    needs: [api-docs-validation, api-endpoint-validation]
+    if: always()
+
+    steps:
+    - name: Create API status summary
+      run: |
+        echo "# API Documentation Validation Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if [[ "${{ needs.api-docs-validation.result }}" == "success" ]]; then
+          echo "✅ **API Documentation:** All links valid" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **API Documentation:** Issues found" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [[ "${{ needs.api-endpoint-validation.result }}" == "success" ]]; then
+          echo "✅ **API Endpoints:** All endpoints accessible" >> $GITHUB_STEP_SUMMARY
+        elif [[ "${{ needs.api-endpoint-validation.result }}" == "failure" ]]; then
+          echo "❌ **API Endpoints:** Some endpoints unreachable" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⏭️ **API Endpoints:** Validation skipped" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Recommendations:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Check annotations for specific broken links" >> $GITHUB_STEP_SUMMARY
+        echo "- Verify API endpoints are accessible from CI environment" >> $GITHUB_STEP_SUMMARY
+        echo "- Consider using allowlist for trusted API domains" >> $GITHUB_STEP_SUMMARY

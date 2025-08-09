@@ -1,0 +1,257 @@
+name: Fast Cached URL Validation
+
+# This workflow demonstrates the improved caching system that dramatically
+# reduces setup time by caching the urlsup binary and trying pre-built
+# downloads before falling back to cargo builds.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Daily validation with cached binary
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  fast-validation:
+    name: Fast URL Validation with Caching
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # The action now includes:
+    # 1. Advanced binary caching (OS + architecture + version specific)
+    # 2. Pre-built binary downloads (much faster than cargo)
+    # 3. Fallback to cargo install if pre-built unavailable
+    # 4. Cross-platform support (Linux, macOS, Windows)
+    - name: Validate URLs with improved caching
+      uses: simeg/urlsup-action@v2
+      with:
+        files: '**/*.md'
+        timeout: 10
+        retry: 2
+        concurrency: 15
+        allow-status: '200,201,202,204,301,302,429'
+        allow-timeout: true
+        failure-threshold: 5
+
+        # Specify urlsup version for consistent caching
+        urlsup-version: 'latest'  # or specific version like 'v0.8.0'
+
+    - name: Show performance metrics
+      run: |
+        echo "## Performance Improvements" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "This workflow benefits from several optimizations:" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Binary Caching" >> $GITHUB_STEP_SUMMARY
+        echo "- **Cache Key**: OS + Architecture + Version specific" >> $GITHUB_STEP_SUMMARY
+        echo "- **Cache Path**: \`~/.cache/urlsup\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Benefits**: Skip installation entirely on cache hit" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Pre-built Binaries" >> $GITHUB_STEP_SUMMARY
+        echo "- **Source**: GitHub Releases" >> $GITHUB_STEP_SUMMARY
+        echo "- **Platforms**: Linux, macOS, Windows (x64, ARM64)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Speed**: ~5-10 seconds vs 2-3 minutes for cargo build" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Fallback Strategy" >> $GITHUB_STEP_SUMMARY
+        echo "1. ✅ Check cache for existing binary" >> $GITHUB_STEP_SUMMARY
+        echo "2. ⚡ Download pre-built binary (if available)" >> $GITHUB_STEP_SUMMARY
+        echo "3. 🔨 Cargo install (if download fails)" >> $GITHUB_STEP_SUMMARY
+
+  matrix-validation:
+    name: Multi-Platform Cached Validation
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate URLs on ${{ matrix.os }}
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'README.md docs/'
+        timeout: 15
+        retry: 2
+        concurrency: 10
+        allow-status: '200,301,302,429'
+        failure-threshold: 3
+
+    - name: Show platform-specific caching
+      shell: bash
+      run: |
+        echo "Platform: ${{ runner.os }} (${{ runner.arch }})"
+        echo "Cache key: urlsup-${{ runner.os }}-${{ runner.arch }}-latest"
+        echo "This ensures platform-specific binaries are cached separately"
+
+  performance-comparison:
+    name: Performance Comparison
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Measure setup time (first run)
+      id: first_run
+      run: |
+        start_time=$(date +%s)
+        echo "start_time=$start_time" >> $GITHUB_OUTPUT
+
+    - name: First validation (cold cache)
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'README.md'
+        timeout: 10
+        quiet: true
+
+    - name: Measure setup time (second run)
+      id: second_run
+      run: |
+        end_time=$(date +%s)
+        duration=$(( end_time - ${{ steps.first_run.outputs.start_time }} ))
+        echo "first_run_duration=$duration" >> $GITHUB_OUTPUT
+
+        start_time=$(date +%s)
+        echo "start_time=$start_time" >> $GITHUB_OUTPUT
+
+    - name: Second validation (warm cache)
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'README.md'
+        timeout: 10
+        quiet: true
+
+    - name: Calculate performance improvement
+      run: |
+        end_time=$(date +%s)
+        second_duration=$(( end_time - ${{ steps.second_run.outputs.start_time }} ))
+        first_duration=${{ steps.second_run.outputs.first_run_duration }}
+
+        echo "## Performance Metrics" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Run | Duration | Setup Method |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----|----------|-------------|" >> $GITHUB_STEP_SUMMARY
+        echo "| First (Cold Cache) | ${first_duration}s | Pre-built download or cargo install |" >> $GITHUB_STEP_SUMMARY
+        echo "| Second (Warm Cache) | ${second_duration}s | Cache hit (instant) |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if [[ $second_duration -lt $first_duration ]]; then
+          improvement=$(( (first_duration - second_duration) * 100 / first_duration ))
+          echo "**Performance Improvement:** ${improvement}% faster with cache" >> $GITHUB_STEP_SUMMARY
+        fi
+
+  cache-management:
+    name: Cache Management Examples
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Example: Force cache refresh for new version
+    - name: Clear cache for new version (if needed)
+      run: |
+        # This step shows how to manually clear cache if needed
+        # Normally not required as cache keys are version-specific
+        echo "To clear cache manually, delete these keys:"
+        echo "- urlsup-Linux-X64-*"
+        echo "- urlsup-macOS-*"
+        echo "- urlsup-Windows-*"
+        echo ""
+        echo "Cache will automatically refresh when urlsup-version changes"
+
+    - name: Validate with specific version
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'README.md'
+        # Using specific version creates separate cache entry
+        urlsup-version: 'v0.8.0'  # Example specific version
+        timeout: 10
+
+    - name: Show cache strategy
+      run: |
+        echo "## Cache Strategy" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Cache Keys" >> $GITHUB_STEP_SUMMARY
+        echo "- **Primary**: \`urlsup-{OS}-{ARCH}-{VERSION}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Fallback 1**: \`urlsup-{OS}-{ARCH}-\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Fallback 2**: \`urlsup-{OS}-\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Benefits" >> $GITHUB_STEP_SUMMARY
+        echo "- ⚡ **Speed**: 5-10x faster on cache hit" >> $GITHUB_STEP_SUMMARY
+        echo "- 💾 **Storage**: Efficient binary-only caching" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔄 **Reliability**: Automatic fallbacks if cache miss" >> $GITHUB_STEP_SUMMARY
+        echo "- 🌐 **Cross-platform**: Separate caches per OS/architecture" >> $GITHUB_STEP_SUMMARY
+
+  troubleshooting:
+    name: Cache Troubleshooting
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Check cache status
+      run: |
+        echo "Checking urlsup cache status..."
+        cache_dir="$HOME/.cache/urlsup"
+
+        if [[ -d "$cache_dir" ]]; then
+          echo "✅ Cache directory exists: $cache_dir"
+
+          if [[ -f "$cache_dir/bin/urlsup" ]]; then
+            echo "✅ Binary found: $cache_dir/bin/urlsup"
+
+            if "$cache_dir/bin/urlsup" --version; then
+              echo "✅ Binary is functional"
+            else
+              echo "❌ Binary is not functional"
+            fi
+          else
+            echo "❌ Binary not found"
+          fi
+
+          echo "Cache contents:"
+          ls -la "$cache_dir" || true
+          ls -la "$cache_dir/bin/" || true
+        else
+          echo "❌ Cache directory not found"
+        fi
+
+    - name: Validate with debug info
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'README.md'
+        verbose: true  # Enable verbose logging
+        timeout: 10
+
+    - name: Cache troubleshooting guide
+      run: |
+        echo "## Cache Troubleshooting" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Common Issues" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Cache miss on expected hit:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Check if \`urlsup-version\` input changed" >> $GITHUB_STEP_SUMMARY
+        echo "- Verify runner OS/architecture consistency" >> $GITHUB_STEP_SUMMARY
+        echo "- Cache might have expired (GitHub cache TTL)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Binary download failures:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Pre-built binary may not exist for OS/arch combination" >> $GITHUB_STEP_SUMMARY
+        echo "- GitHub releases may be unavailable" >> $GITHUB_STEP_SUMMARY
+        echo "- Will automatically fall back to cargo install" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Cargo install failures:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Rust toolchain required on runner" >> $GITHUB_STEP_SUMMARY
+        echo "- Network connectivity to crates.io" >> $GITHUB_STEP_SUMMARY
+        echo "- Available disk space for compilation" >> $GITHUB_STEP_SUMMARY

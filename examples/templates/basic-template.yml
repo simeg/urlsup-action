@@ -1,0 +1,100 @@
+# Basic URL Validation Template
+# Copy this template to .github/workflows/ and customize as needed
+
+name: URL Validation
+
+on:
+  # Trigger on pushes to main branch
+  push:
+    branches: [ main ]
+
+  # Trigger on pull requests
+  pull_request:
+    branches: [ main ]
+
+  # Optional: Schedule weekly checks
+  # schedule:
+  #   - cron: '0 9 * * 1'  # Every Monday at 9 AM UTC
+
+  # Optional: Allow manual triggering
+  # workflow_dispatch:
+
+permissions:
+  contents: read
+  # pull-requests: write  # Uncomment if you want PR comments
+
+jobs:
+  validate-urls:
+    runs-on: ubuntu-latest
+    name: Validate repository URLs
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate URLs
+        uses: simeg/urlsup-action@v2
+        with:
+          # REQUIRED: Files to check
+          files: '**/*.md'  # Change this to your files/directories
+
+          # NETWORK SETTINGS
+          timeout: 5        # Request timeout in seconds
+          retry: 2          # Number of retries
+          concurrency: 10   # Concurrent requests
+
+          # FILE SELECTION
+          include-extensions: 'md,rst,txt'  # File types to check
+          recursive: true   # Check subdirectories
+
+          # URL FILTERING
+          allow-status: '200,202,204'  # Allowed HTTP status codes
+          # allowlist: 'github.com,example.com'  # Trusted domains
+          # exclude-pattern: 'localhost|127\.0\.0\.1'  # URLs to skip
+
+          # GITHUB INTEGRATION
+          create-annotations: true  # Show broken URLs in files
+          fail-on-error: true      # Fail workflow on broken URLs
+
+          # OPTIONAL: Custom user agent
+          # user-agent: 'url-checker/1.0 (+https://github.com/your-org/your-repo)'
+
+      # Optional: Comment on pull requests
+      # - name: Comment on PR
+      #   if: failure() && github.event_name == 'pull_request'
+      #   uses: actions/github-script@v7
+      #   with:
+      #     script: |
+      #       await github.rest.issues.createComment({
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         issue_number: context.issue.number,
+      #         body: '🔗 **URL validation failed** - Some links appear to be broken. Please check the workflow annotations for details.'
+      #       });
+
+# CUSTOMIZATION GUIDE:
+#
+# 1. Update 'files' input to match your repository structure:
+#    - Single file: 'README.md'
+#    - Multiple files: 'README.md CHANGELOG.md docs/'
+#    - All markdown: '**/*.md'
+#    - Specific directory: 'docs/'
+#
+# 2. Adjust network settings based on your needs:
+#    - Fast sites: timeout: 5, retry: 1
+#    - Slow APIs: timeout: 30, retry: 3
+#    - High volume: concurrency: 20
+#
+# 3. Configure filtering for your environment:
+#    - Add trusted domains to allowlist
+#    - Exclude development URLs with exclude-pattern
+#    - Allow additional status codes if needed
+#
+# 4. Choose failure behavior:
+#    - fail-on-error: true = Strict (fail on any broken URLs)
+#    - fail-on-error: false = Lenient (warn but don't fail)
+#
+# 5. Optional enhancements:
+#    - Uncomment schedule for regular checks
+#    - Uncomment PR comments for better visibility
+#    - Add custom user-agent for server compatibility

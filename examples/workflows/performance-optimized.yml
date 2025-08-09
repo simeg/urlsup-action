@@ -1,0 +1,304 @@
+name: Performance Optimized URL Validation
+
+# This workflow demonstrates high-performance URL validation configurations
+# optimized for speed while maintaining reliability. Suitable for large
+# repositories with many links or time-sensitive CI/CD pipelines.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run nightly at 3 AM UTC for full validation
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      validation_type:
+        description: 'Type of validation to run'
+        required: true
+        default: 'fast'
+        type: choice
+        options:
+        - fast
+        - comprehensive
+        - critical-only
+
+jobs:
+  fast-validation:
+    name: Fast Validation (PR/Push)
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' ||
+      github.event_name == 'pull_request' ||
+      github.event.inputs.validation_type == 'fast'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Fast URL validation
+      uses: simeg/urlsup-action@v2
+      with:
+        # Target only essential files for speed
+        files: 'README.md docs/getting-started.md docs/api/'
+        include-extensions: 'md'
+
+        # Performance-optimized settings
+        timeout: 8
+        retry: 1
+        retry-delay: 1
+        concurrency: 30
+        rate-limit: 20
+
+        # Quick validation status codes
+        allow-status: '200,301,302,304,429'
+        allow-timeout: true
+
+        # Higher failure threshold for speed
+        failure-threshold: 5
+        fail-on-error: false
+
+        # Skip slow/problematic domains
+        exclude-pattern: |
+          slow-domain\.com
+          unreliable\.example
+          rate-limited\.api
+          \.onion|\.i2p
+          very-slow\.service
+
+        # Trusted fast domains only
+        allowlist: |
+          github.com
+          docs.github.com
+          fast-cdn\.com
+          reliable-api\.com
+
+  comprehensive-validation:
+    name: Comprehensive Validation (Nightly)
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'schedule' ||
+      github.event.inputs.validation_type == 'comprehensive'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Comprehensive URL validation
+      uses: simeg/urlsup-action@v2
+      with:
+        # Validate all documentation
+        files: '**/*.md **/*.rst docs/ content/'
+
+        # Balanced performance settings
+        timeout: 15
+        retry: 2
+        retry-delay: 2
+        concurrency: 25
+        rate-limit: 30
+
+        # More permissive for comprehensive check
+        allow-status: '200,201,202,204,301,302,304,429'
+        allow-timeout: true
+        failure-threshold: 10
+
+        # Comprehensive domain allowlist
+        allowlist: |
+          github.com
+          docs.github.com
+          developer.github.com
+          stackoverflow.com
+          developer.mozilla.org
+          www.w3.org
+          npmjs.com
+          pypi.org
+          crates.io
+          hub.docker.com
+
+        exclude-pattern: 'localhost|127\.0\.0\.1|example\.com'
+
+  critical-links-only:
+    name: Critical Links Only
+    runs-on: ubuntu-latest
+    if: github.event.inputs.validation_type == 'critical-only'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate critical links only
+      uses: simeg/urlsup-action@v2
+      with:
+        # Only critical files
+        files: 'README.md SECURITY.md LICENSE'
+
+        # Fast but reliable settings
+        timeout: 10
+        retry: 2
+        concurrency: 15
+
+        # Strict validation for critical links
+        allow-status: '200,301,302'
+        fail-on-error: true
+        failure-threshold: 0
+
+        # Only most trusted domains
+        allowlist: |
+          github.com
+          docs.github.com
+          www.w3.org
+
+  parallel-validation:
+    name: Parallel Validation by Content Type
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    strategy:
+      matrix:
+        content_type:
+          - name: 'documentation'
+            files: 'docs/ README.md'
+            timeout: 10
+            concurrency: 20
+          - name: 'api-docs'
+            files: 'api/ swagger.json openapi.yml'
+            timeout: 20
+            concurrency: 10
+          - name: 'blog-content'
+            files: 'blog/ posts/ content/'
+            timeout: 8
+            concurrency: 25
+          - name: 'config-files'
+            files: '*.md *.yml *.json'
+            timeout: 5
+            concurrency: 30
+
+      fail-fast: false
+      max-parallel: 4
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate ${{ matrix.content_type.name }}
+      uses: simeg/urlsup-action@v2
+      with:
+        files: ${{ matrix.content_type.files }}
+        timeout: ${{ matrix.content_type.timeout }}
+        concurrency: ${{ matrix.content_type.concurrency }}
+        retry: 2
+        rate-limit: 25
+        allow-status: '200,301,302,304,429'
+        allow-timeout: true
+        failure-threshold: 3
+
+  cached-validation:
+    name: Cached Validation (Reuse Results)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Cache validation results
+      uses: actions/cache@v3
+      with:
+        path: |
+          .urlsup-cache
+          urlsup-report.json
+        key: urlsup-${{ github.sha }}-${{ hashFiles('**/*.md') }}
+        restore-keys: |
+          urlsup-${{ github.ref_name }}-
+          urlsup-
+
+    - name: Fast validation with caching
+      uses: simeg/urlsup-action@v2
+      with:
+        files: '**/*.md'
+        timeout: 12
+        retry: 2
+        concurrency: 35
+        rate-limit: 15
+
+        # Cache-friendly settings
+        allow-status: '200,301,302,304,429'
+        allow-timeout: true
+        failure-threshold: 8
+
+        # Enable quiet mode for faster processing
+        quiet: true
+
+  regional-optimization:
+    name: Regional Performance Optimization
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate with regional considerations
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'docs/ README.md'
+
+        # Optimized for global access
+        timeout: 20
+        retry: 3
+        retry-delay: 3
+        concurrency: 15
+        rate-limit: 40
+
+        # Regional-aware status codes
+        allow-status: '200,301,302,304,403,429'
+
+        # Custom user agent for better acceptance
+        user-agent: 'Documentation-Validator/2.0 (+https://github.com/your-org/your-repo)'
+
+        # Exclude region-specific test URLs
+        exclude-pattern: |
+          \.local|localhost
+          region-test\.|geo-test\.
+          us-only\.|eu-only\.|asia-only\.
+
+        # Global CDN and service domains
+        allowlist: |
+          github.com
+          docs.github.com
+          cloudflare.com
+          cdn.jsdelivr.net
+          unpkg.com
+          fonts.googleapis.com
+
+  benchmark-performance:
+    name: Performance Benchmarking
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Benchmark URL validation performance
+      run: |
+        echo "Starting performance benchmark..."
+        start_time=$(date +%s)
+
+    - name: Run optimized validation
+      uses: simeg/urlsup-action@v2
+      with:
+        files: '**/*.md'
+        timeout: 10
+        retry: 1
+        concurrency: 40
+        rate-limit: 10
+        allow-status: '200,301,302,304,429'
+        allow-timeout: true
+        quiet: true
+
+    - name: Calculate performance metrics
+      run: |
+        end_time=$(date +%s)
+        duration=$((end_time - start_time))
+        echo "Validation completed in ${duration} seconds"
+        echo "Performance benchmark: ${duration}s" >> $GITHUB_STEP_SUMMARY

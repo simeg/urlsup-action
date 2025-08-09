@@ -1,0 +1,153 @@
+name: Multi-Environment URL Validation
+
+# This workflow demonstrates different URL validation configurations
+# for different environments (staging vs production) with appropriate
+# settings for each environment's requirements.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to validate'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+jobs:
+  validate-staging:
+    name: Validate URLs (Staging)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' || github.event.inputs.environment == 'staging'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate URLs with lenient settings
+      uses: simeg/urlsup-action@v2
+      with:
+        # Staging environment - more lenient settings
+        files: 'docs/ README.md'
+        timeout: 10
+        retry: 3
+        retry-delay: 2
+        concurrency: 15
+
+        # Allow more status codes (staging might have issues)
+        allow-status: '200,201,202,204,301,302,429,500,502,503'
+        allow-timeout: true
+
+        # Higher failure threshold for staging
+        failure-threshold: 10
+        fail-on-error: false
+
+        # Exclude staging-specific URLs
+        exclude-pattern: 'localhost|127\.0\.0\.1|\.local|staging-internal'
+
+        # Allow staging domains
+        allowlist: 'staging.example.com,dev.example.com'
+
+  validate-production:
+    name: Validate URLs (Production)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'production'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate URLs with strict settings
+      uses: simeg/urlsup-action@v2
+      with:
+        # Production environment - strict settings
+        files: 'docs/ README.md CHANGELOG.md'
+        timeout: 15
+        retry: 2
+        retry-delay: 3
+        concurrency: 10
+
+        # Only allow successful status codes
+        allow-status: '200,201,204,301,302'
+        allow-timeout: false
+
+        # No tolerance for broken links in production
+        failure-threshold: 0
+        fail-on-error: true
+
+        # Exclude development URLs
+        exclude-pattern: 'localhost|127\.0\.0\.1|\.local|example\.com|todo\.|staging\.'
+
+        # Production domains only
+        allowlist: 'production.example.com,api.example.com,docs.example.com'
+
+        # Custom user agent for production validation
+        user-agent: 'ProductionValidator/1.0 (+https://github.com/your-org/your-repo)'
+
+  notify-results:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [validate-staging, validate-production]
+    if: always()
+
+    steps:
+    - name: Staging Results
+      if: needs.validate-staging.result != 'skipped'
+      run: |
+        echo "Staging validation: ${{ needs.validate-staging.result }}"
+        if [ "${{ needs.validate-staging.result }}" = "failure" ]; then
+          echo "⚠️ Staging has broken links - review but not blocking"
+        fi
+
+    - name: Production Results
+      if: needs.validate-production.result != 'skipped'
+      run: |
+        echo "Production validation: ${{ needs.validate-production.result }}"
+        if [ "${{ needs.validate-production.result }}" = "failure" ]; then
+          echo "❌ Production has broken links - immediate attention required!"
+          exit 1
+        fi
+
+  matrix-validation:
+    name: Matrix Environment Validation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    strategy:
+      matrix:
+        environment:
+          - name: staging
+            timeout: 10
+            retry: 3
+            fail-on-error: false
+            threshold: 10
+            allow-codes: '200,201,202,204,301,302,429,500,502,503'
+          - name: production
+            timeout: 15
+            retry: 2
+            fail-on-error: true
+            threshold: 0
+            allow-codes: '200,201,204,301,302'
+
+      fail-fast: false
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate URLs for ${{ matrix.environment.name }}
+      uses: simeg/urlsup-action@v2
+      with:
+        files: 'docs/ README.md'
+        timeout: ${{ matrix.environment.timeout }}
+        retry: ${{ matrix.environment.retry }}
+        fail-on-error: ${{ matrix.environment.fail-on-error }}
+        failure-threshold: ${{ matrix.environment.threshold }}
+        allow-status: ${{ matrix.environment.allow-codes }}
+        exclude-pattern: 'localhost|127\.0\.0\.1|example\.com'

@@ -1,17 +1,250 @@
-name: 'Link Availability Validator'
-description: 'Validate that links in your repo are up and available'
+name: 'URL Validator'
+description: 'Fast, concurrent URL validation for files in your repository using urlsup'
+author: 'Simon Egersand'
 
 inputs:
-  args:
-    description: 'Arguments to urlsup'
-    required: true
+  # File Selection
+  files:
+    description: 'Files or directories to check (space-separated)'
+    required: false
+    default: '.'
+  recursive:
+    description: 'Recursively process directories'
+    required: false
+    default: 'true'
+  include-extensions:
+    description: 'File extensions to process (comma-separated, e.g., md,html,txt)'
+    required: false
+    default: 'md,rst,txt,html'
+
+  # Network Configuration
+  timeout:
+    description: 'Connection timeout in seconds'
+    required: false
+    default: '5'
+  concurrency:
+    description: 'Number of concurrent requests (default: CPU cores)'
+    required: false
+  retry:
+    description: 'Retry attempts for failed requests'
+    required: false
+    default: '2'
+  retry-delay:
+    description: 'Delay between retries in milliseconds'
+    required: false
+    default: '1000'
+  rate-limit:
+    description: 'Delay between requests in milliseconds'
+    required: false
+    default: '100'
+
+  # URL Filtering
+  allowlist:
+    description: 'URLs to allow (comma-separated patterns)'
+    required: false
+  allow-status:
+    description: 'HTTP status codes to allow (comma-separated)'
+    required: false
+    default: '200,202,204'
+  exclude-pattern:
+    description: 'URL patterns to exclude (regex)'
+    required: false
+  allow-timeout:
+    description: 'Allow URLs that timeout'
+    required: false
+    default: 'false'
+  failure-threshold:
+    description: 'Failure threshold - fail only if more than X% of URLs are broken (0-100)'
+    required: false
+
+  # Output Configuration
+  quiet:
+    description: 'Suppress progress output'
+    required: false
+    default: 'false'
+  verbose:
+    description: 'Enable verbose logging'
+    required: false
+    default: 'false'
+  no-progress:
+    description: 'Disable progress bars'
+    required: false
+    default: 'false'
+
+  # Advanced Options
+  user-agent:
+    description: 'Custom User-Agent header'
+    required: false
+    default: 'urlsup-action/2.2.0 (+https://github.com/simeg/urlsup-action)'
+  proxy:
+    description: 'HTTP/HTTPS proxy URL'
+    required: false
+  insecure:
+    description: 'Skip SSL certificate verification'
+    required: false
+    default: 'false'
+  config:
+    description: 'Path to urlsup configuration file'
+    required: false
+  no-config:
+    description: 'Ignore configuration files'
+    required: false
+    default: 'false'
+
+  # Action-specific Options
+  urlsup-version:
+    description: 'Version of urlsup to use'
+    required: false
+    default: 'latest'
+  create-annotations:
+    description: 'Create GitHub annotations for broken URLs'
+    required: false
+    default: 'true'
+  fail-on-error:
+    description: 'Fail the action if broken URLs are found'
+    required: false
+    default: 'true'
+
+outputs:
+  total-urls:
+    description: 'Total number of URLs validated'
+    value: ${{ steps.validate.outputs.total-urls }}
+  broken-urls:
+    description: 'Number of broken URLs found'
+    value: ${{ steps.validate.outputs.broken-urls }}
+  success-rate:
+    description: 'Percentage of working URLs'
+    value: ${{ steps.validate.outputs.success-rate }}
+  report-path:
+    description: 'Path to detailed JSON report'
+    value: ${{ steps.validate.outputs.report-path }}
+  exit-code:
+    description: 'Exit code from urlsup (0 = success, >0 = errors found)'
+    value: ${{ steps.validate.outputs.exit-code }}
+  total-files:
+    description: 'Total number of files found'
+    value: ${{ steps.validate.outputs.total-files }}
+  processed-files:
+    description: 'Number of files processed'
+    value: ${{ steps.validate.outputs.processed-files }}
+  total-found-urls:
+    description: 'Total number of URLs found in files'
+    value: ${{ steps.validate.outputs.total-found-urls }}
+  unique-urls:
+    description: 'Number of unique URLs found'
+    value: ${{ steps.validate.outputs.unique-urls }}
+  status:
+    description: 'Overall validation status (success/failure)'
+    value: ${{ steps.validate.outputs.status }}
 
 runs:
-  using: 'docker'
-  image: 'docker://simeg/urlsup:2.0.0'
-  args:
-    - ${{ inputs.args }}
+  using: 'composite'
+  steps:
+    - name: Cache urlsup binary
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/bin/urlsup
+        key: urlsup-${{ runner.os }}-${{ runner.arch }}-${{ inputs.urlsup-version }}
+        restore-keys: |
+          urlsup-${{ runner.os }}-${{ runner.arch }}-
+          urlsup-${{ runner.os }}-
+
+    - name: Install urlsup
+      shell: bash
+      run: |
+        # Check if urlsup is already installed and functional
+        if command -v urlsup >/dev/null 2>&1 && urlsup --version >/dev/null 2>&1; then
+          echo "✅ urlsup already installed and functional"
+          urlsup --version
+        else
+          echo "📦 Installing urlsup..."
+          # Install urlsup
+          if [[ "${{ inputs.urlsup-version }}" == "latest" ]]; then
+            cargo install urlsup
+          else
+            cargo install urlsup --version "${{ inputs.urlsup-version }}"
+          fi
+          echo "✅ urlsup installation complete"
+          urlsup --version
+        fi
+
+    - name: Validate URLs
+      id: validate
+      shell: bash
+      run: python3 ${{ github.action_path }}/scripts/validate.py
+      env:
+        # File Selection
+        INPUT_FILES: ${{ inputs.files }}
+        INPUT_RECURSIVE: ${{ inputs.recursive }}
+        INPUT_INCLUDE_EXTENSIONS: ${{ inputs.include-extensions }}
+        # Network Configuration
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        INPUT_CONCURRENCY: ${{ inputs.concurrency }}
+        INPUT_RETRY: ${{ inputs.retry }}
+        INPUT_RETRY_DELAY: ${{ inputs.retry-delay }}
+        INPUT_RATE_LIMIT: ${{ inputs.rate-limit }}
+        # URL Filtering
+        INPUT_ALLOWLIST: ${{ inputs.allowlist }}
+        INPUT_ALLOW_STATUS: ${{ inputs.allow-status }}
+        INPUT_EXCLUDE_PATTERN: ${{ inputs.exclude-pattern }}
+        INPUT_ALLOW_TIMEOUT: ${{ inputs.allow-timeout }}
+        INPUT_FAILURE_THRESHOLD: ${{ inputs.failure-threshold }}
+        # Output Configuration
+        INPUT_QUIET: ${{ inputs.quiet }}
+        INPUT_VERBOSE: ${{ inputs.verbose }}
+        INPUT_NO_PROGRESS: ${{ inputs.no-progress }}
+        # Advanced Options
+        INPUT_USER_AGENT: ${{ inputs.user-agent }}
+        INPUT_PROXY: ${{ inputs.proxy }}
+        INPUT_INSECURE: ${{ inputs.insecure }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_NO_CONFIG: ${{ inputs.no-config }}
+        # Action-specific
+        INPUT_CREATE_ANNOTATIONS: ${{ inputs.create-annotations }}
+        INPUT_FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
+
+    - name: Create annotations
+      if: inputs.create-annotations == 'true' && steps.validate.outputs.broken-urls != '0'
+      shell: bash
+      run: python3 ${{ github.action_path }}/scripts/annotate.py
+      env:
+        REPORT_PATH: ${{ steps.validate.outputs.report-path }}
+
+    - name: Generate job summary
+      if: always()
+      shell: bash
+      run: python3 ${{ github.action_path }}/scripts/summary.py
+      env:
+        TOTAL_URLS: ${{ steps.validate.outputs.total-urls }}
+        BROKEN_URLS: ${{ steps.validate.outputs.broken-urls }}
+        SUCCESS_RATE: ${{ steps.validate.outputs.success-rate }}
+        REPORT_PATH: ${{ steps.validate.outputs.report-path }}
+        EXIT_CODE: ${{ steps.validate.outputs.exit-code }}
+
+    - name: Generate unique artifact name
+      id: artifact-name
+      if: always() && steps.validate.outputs.report-path != ''
+      shell: bash
+      run: echo "name=urlsup-report-${{ github.run_id }}-$(date +%s%N)" >> $GITHUB_OUTPUT
+
+    - name: Upload report
+      id: upload-report
+      if: always() && steps.validate.outputs.report-path != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.artifact-name.outputs.name }}
+        path: ${{ steps.validate.outputs.report-path }}
+        retention-days: 7
+
+    - name: Fail workflow if broken URLs found
+      if: inputs.fail-on-error == 'true' && steps.validate.outputs.broken-urls != '0'
+      shell: bash
+      run: |
+        echo "::error::URL validation failed with ${{ steps.validate.outputs.broken-urls }} broken URLs"
+        echo "Check the annotations and job summary for details."
+        exit 1
 
 branding:
-  icon: check-circle
-  color: green
+  icon: 'check-circle'
+  color: 'green'
+

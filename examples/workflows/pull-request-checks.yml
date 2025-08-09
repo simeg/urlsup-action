@@ -1,0 +1,153 @@
+name: Pull Request URL Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '**/*.md'
+      - '**/*.rst'
+      - '**/*.txt'
+      - 'docs/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  validate-changed-urls:
+    runs-on: ubuntu-latest
+    name: Validate URLs in changed files
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch more history for accurate diff
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v41
+        with:
+          files: |
+            **/*.md
+            **/*.rst
+            **/*.txt
+            docs/**/*.html
+          separator: ' '
+
+      - name: Validate URLs in changed files
+        if: steps.changed-files.outputs.any_changed == 'true'
+        id: urlcheck
+        uses: simeg/urlsup-action@v2
+        with:
+          # Only check changed files
+          files: ${{ steps.changed-files.outputs.all_changed_files }}
+
+          # Reasonable timeouts for PR checks
+          timeout: 10
+          retry: 2
+
+          # Moderate concurrency to avoid overwhelming servers
+          concurrency: 10
+
+          # Allow common redirect and success codes
+          allow-status: '200,202,204,301,302'
+
+          # Enable annotations for inline comments
+          create-annotations: true
+
+          # Don't fail PRs immediately for broken links
+          fail-on-error: false
+
+          # Exclude development URLs
+          exclude-pattern: 'localhost|127\.0\.0\.1|staging\.|dev\.|test\.'
+
+      - name: Comment on PR with results
+        if: steps.changed-files.outputs.any_changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const totalUrls = '${{ steps.urlcheck.outputs.total-urls }}';
+            const brokenUrls = '${{ steps.urlcheck.outputs.broken-urls }}';
+            const successRate = '${{ steps.urlcheck.outputs.success-rate }}';
+            const changedFiles = '${{ steps.changed-files.outputs.all_changed_files }}'.split(' ');
+
+            let commentBody;
+
+            if (brokenUrls === '0') {
+              commentBody = `## ✅ URL Validation Passed
+
+            All ${totalUrls} URLs in the changed files are working correctly!
+
+            **Files checked:** ${changedFiles.length} file(s)
+            **Success rate:** ${successRate}
+            `;
+            } else {
+              commentBody = `## ⚠️ URL Validation Found Issues
+
+            Found ${brokenUrls} broken URL(s) out of ${totalUrls} total URLs in the changed files.
+
+            **Files checked:** ${changedFiles.length} file(s)
+            **Success rate:** ${successRate}
+
+            ### 🔍 Next Steps
+            1. Check the workflow annotations for specific broken URLs
+            2. Fix or remove the broken links
+            3. If links are expected to be broken, consider adding them to the exclude pattern
+
+            <details>
+            <summary>📁 Changed files checked</summary>
+
+            ${changedFiles.map(file => `- \`${file}\``).join('\n')}
+
+            </details>
+            `;
+            }
+
+            // Find existing comment from this bot
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('URL Validation')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: commentBody
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: commentBody
+              });
+            }
+
+      - name: Set check status
+        if: steps.changed-files.outputs.any_changed == 'true'
+        run: |
+          if [ "${{ steps.urlcheck.outputs.broken-urls }}" = "0" ]; then
+            echo "✅ URL validation passed"
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ URL validation found issues"
+            echo "status=warning" >> $GITHUB_OUTPUT
+          fi
+
+      - name: No files changed
+        if: steps.changed-files.outputs.any_changed == 'false'
+        run: |
+          echo "ℹ️ No relevant files changed - skipping URL validation"

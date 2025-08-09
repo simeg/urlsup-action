@@ -1,0 +1,217 @@
+name: Monorepo URL Validation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday at 6 AM UTC
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changed-projects:
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.changes.outputs.frontend }}
+      backend: ${{ steps.changes.outputs.backend }}
+      docs: ${{ steps.changes.outputs.docs }}
+      shared: ${{ steps.changes.outputs.shared }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            frontend:
+              - 'packages/frontend/**'
+              - 'apps/web/**'
+            backend:
+              - 'packages/backend/**'
+              - 'apps/api/**'
+            docs:
+              - 'docs/**'
+              - '*.md'
+            shared:
+              - 'packages/shared/**'
+              - 'libs/**'
+
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          projects=()
+          if [ "${{ steps.changes.outputs.frontend }}" == "true" ] || [ "${{ github.event_name }}" == "schedule" ]; then
+            projects+=('{"name":"frontend","path":"packages/frontend apps/web","config":"frontend"}')
+          fi
+          if [ "${{ steps.changes.outputs.backend }}" == "true" ] || [ "${{ github.event_name }}" == "schedule" ]; then
+            projects+=('{"name":"backend","path":"packages/backend apps/api","config":"backend"}')
+          fi
+          if [ "${{ steps.changes.outputs.docs }}" == "true" ] || [ "${{ github.event_name }}" == "schedule" ]; then
+            projects+=('{"name":"docs","path":"docs/ README.md CHANGELOG.md","config":"docs"}')
+          fi
+          if [ "${{ steps.changes.outputs.shared }}" == "true" ] || [ "${{ github.event_name }}" == "schedule" ]; then
+            projects+=('{"name":"shared","path":"packages/shared libs/","config":"shared"}')
+          fi
+
+          if [ ${#projects[@]} -eq 0 ]; then
+            matrix='{"include":[]}'
+          else
+            matrix='{"include":['$(IFS=,; echo "${projects[*]}")']}'
+          fi
+
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+          echo "Generated matrix: $matrix"
+
+  validate-project-urls:
+    needs: detect-changed-projects
+    if: needs.detect-changed-projects.outputs.matrix != '{"include":[]}'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.detect-changed-projects.outputs.matrix) }}
+      fail-fast: false
+
+    name: Validate URLs - ${{ matrix.name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure validation for ${{ matrix.config }}
+        id: config
+        run: |
+          case "${{ matrix.config }}" in
+            "frontend")
+              echo "timeout=10" >> $GITHUB_OUTPUT
+              echo "concurrency=15" >> $GITHUB_OUTPUT
+              echo "include_ext=md,tsx,ts,js,html" >> $GITHUB_OUTPUT
+              echo "allow_status=200,202,204,301,302" >> $GITHUB_OUTPUT
+              echo "exclude_pattern=localhost|127\.0\.0\.1|\.local|staging\." >> $GITHUB_OUTPUT
+              echo "fail_on_error=false" >> $GITHUB_OUTPUT
+              ;;
+            "backend")
+              echo "timeout=30" >> $GITHUB_OUTPUT
+              echo "concurrency=10" >> $GITHUB_OUTPUT
+              echo "include_ext=md,py,go,java,rs" >> $GITHUB_OUTPUT
+              echo "allow_status=200,201,202,204,301,302,401,403" >> $GITHUB_OUTPUT
+              echo "exclude_pattern=localhost|127\.0\.0\.1|\.local|test\.|mock\." >> $GITHUB_OUTPUT
+              echo "fail_on_error=false" >> $GITHUB_OUTPUT
+              ;;
+            "docs")
+              echo "timeout=15" >> $GITHUB_OUTPUT
+              echo "concurrency=20" >> $GITHUB_OUTPUT
+              echo "include_ext=md,rst,html" >> $GITHUB_OUTPUT
+              echo "allow_status=200,202,204,301,302" >> $GITHUB_OUTPUT
+              echo "exclude_pattern=localhost|127\.0\.0\.1|example\.com|todo\." >> $GITHUB_OUTPUT
+              echo "fail_on_error=true" >> $GITHUB_OUTPUT
+              ;;
+            "shared")
+              echo "timeout=10" >> $GITHUB_OUTPUT
+              echo "concurrency=15" >> $GITHUB_OUTPUT
+              echo "include_ext=md,ts,js,json" >> $GITHUB_OUTPUT
+              echo "allow_status=200,202,204,301,302" >> $GITHUB_OUTPUT
+              echo "exclude_pattern=localhost|127\.0\.0\.1|\.local" >> $GITHUB_OUTPUT
+              echo "fail_on_error=false" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Validate URLs in ${{ matrix.name }}
+        id: urlcheck
+        uses: simeg/urlsup-action@v2
+        with:
+          files: ${{ matrix.path }}
+          include-extensions: ${{ steps.config.outputs.include_ext }}
+
+          timeout: ${{ steps.config.outputs.timeout }}
+          retry: 2
+          concurrency: ${{ steps.config.outputs.concurrency }}
+
+          allow-status: ${{ steps.config.outputs.allow_status }}
+          exclude-pattern: ${{ steps.config.outputs.exclude_pattern }}
+
+          create-annotations: true
+          fail-on-error: ${{ steps.config.outputs.fail_on_error }}
+
+          user-agent: 'monorepo-urlcheck/1.0 (${{ matrix.name }}) +https://github.com/${{ github.repository }}'
+
+      - name: Report project results
+        run: |
+          echo "## 📊 Results for ${{ matrix.name }}"
+          echo "- **Files Path:** ${{ matrix.path }}"
+          echo "- **Total URLs:** ${{ steps.urlcheck.outputs.total-urls }}"
+          echo "- **Broken URLs:** ${{ steps.urlcheck.outputs.broken-urls }}"
+          echo "- **Success Rate:** ${{ steps.urlcheck.outputs.success-rate }}"
+
+          if [ "${{ steps.urlcheck.outputs.broken-urls }}" != "0" ]; then
+            echo "⚠️ Found ${{ steps.urlcheck.outputs.broken-urls }} broken URLs"
+          else
+            echo "✅ All URLs working correctly"
+          fi
+
+  aggregate-results:
+    needs: [detect-changed-projects, validate-project-urls]
+    if: always() && needs.detect-changed-projects.outputs.matrix != '{"include":[]}'
+    runs-on: ubuntu-latest
+    name: Aggregate validation results
+
+    steps:
+      - name: Check overall status
+        run: |
+          echo "## 📋 Monorepo URL Validation Summary"
+          echo ""
+          echo "**Validation completed for changed projects**"
+          echo ""
+
+          # Note: In a real implementation, you might want to collect
+          # the actual results from each job and aggregate them
+          if [ "${{ needs.validate-project-urls.result }}" == "success" ]; then
+            echo "✅ All project validations completed successfully"
+          elif [ "${{ needs.validate-project-urls.result }}" == "failure" ]; then
+            echo "❌ Some project validations failed"
+          else
+            echo "⚠️ Project validations completed with mixed results"
+          fi
+
+          echo ""
+          echo "Check individual job results for detailed information."
+
+      - name: Create summary comment (for PRs)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = `## 🔗 Monorepo URL Validation Results
+
+            URL validation has been completed for the changed projects in this pull request.
+
+            **Status:** ${{ needs.validate-project-urls.result == 'success' && '✅ All validations passed' || '⚠️ Some validations had issues' }}
+
+            ### 📁 Projects Checked
+            ${{ needs.detect-changed-projects.outputs.frontend == 'true' && '- 🌐 Frontend' || '' }}
+            ${{ needs.detect-changed-projects.outputs.backend == 'true' && '- ⚙️ Backend' || '' }}
+            ${{ needs.detect-changed-projects.outputs.docs == 'true' && '- 📚 Documentation' || '' }}
+            ${{ needs.detect-changed-projects.outputs.shared == 'true' && '- 🔗 Shared Libraries' || '' }}
+
+            Check the workflow details for specific broken URLs and annotations.
+            `;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: summary
+            });
+
+  no-changes:
+    needs: detect-changed-projects
+    if: needs.detect-changed-projects.outputs.matrix == '{"include":[]}'
+    runs-on: ubuntu-latest
+    name: No relevant changes detected
+
+    steps:
+      - name: Skip validation
+        run: |
+          echo "ℹ️ No relevant file changes detected for URL validation"
+          echo "Skipping validation to save resources"

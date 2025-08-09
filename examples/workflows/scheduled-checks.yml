@@ -1,0 +1,108 @@
+name: Scheduled URL Health Check
+
+on:
+  schedule:
+    # Run every Monday at 9 AM UTC
+    - cron: '0 9 * * 1'
+
+  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      strict_mode:
+        description: 'Enable strict mode (fail on any broken URL)'
+        type: boolean
+        default: false
+      target_files:
+        description: 'Files to check (default: all documentation)'
+        type: string
+        default: 'docs/ README.md CHANGELOG.md'
+
+permissions:
+  contents: read
+  issues: write  # To create issues for broken links
+
+jobs:
+  scheduled-url-check:
+    runs-on: ubuntu-latest
+    name: Weekly URL health check
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate URLs
+        id: urlcheck
+        uses: simeg/urlsup-action@v2
+        with:
+          files: ${{ inputs.target_files || 'docs/ README.md CHANGELOG.md' }}
+
+          # More generous timeouts for scheduled checks
+          timeout: 15
+          retry: 3
+          retry-delay: 2000
+
+          # Higher concurrency for faster execution
+          concurrency: 20
+
+          # Allow more status codes for external sites
+          allow-status: '200,202,204,301,302'
+
+          # Don't fail immediately - we'll handle reporting below
+          fail-on-error: false
+
+          # Create annotations for review
+          create-annotations: true
+
+          # Exclude development and example URLs
+          exclude-pattern: 'localhost|127\.0\.0\.1|example\.com|todo\.example'
+
+      - name: Create issue for broken links
+        if: steps.urlcheck.outputs.broken-urls != '0' && inputs.strict_mode
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const brokenCount = '${{ steps.urlcheck.outputs.broken-urls }}';
+            const totalCount = '${{ steps.urlcheck.outputs.total-urls }}';
+            const successRate = '${{ steps.urlcheck.outputs.success-rate }}';
+
+            const issueBody = `## 🔗 Broken Links Detected
+
+            Our scheduled URL validation found broken links in the repository.
+
+            ### Summary
+            - **Total URLs checked:** ${totalCount}
+            - **Broken URLs:** ${brokenCount}
+            - **Success rate:** ${successRate}
+
+            ### Next Steps
+            1. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for detailed annotations
+            2. Review and fix the broken links
+            3. Consider adding persistent broken links to the exclude pattern
+
+            ### Workflow Details
+            - **Triggered:** Scheduled check (${new Date().toISOString()})
+            - **Branch:** ${{ github.ref_name }}
+            - **Commit:** ${{ github.sha }}
+
+            This issue was automatically created by the URL validation workflow.`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔗 Broken Links Found (${brokenCount} URLs)`,
+              body: issueBody,
+              labels: ['broken-links', 'maintenance']
+            });
+
+      - name: Comment on success
+        if: steps.urlcheck.outputs.broken-urls == '0'
+        run: |
+          echo "✅ All ${{ steps.urlcheck.outputs.total-urls }} URLs are working!"
+          echo "Success rate: ${{ steps.urlcheck.outputs.success-rate }}"
+
+      - name: Summary for non-strict mode
+        if: steps.urlcheck.outputs.broken-urls != '0' && !inputs.strict_mode
+        run: |
+          echo "⚠️ Found ${{ steps.urlcheck.outputs.broken-urls }} broken URLs out of ${{ steps.urlcheck.outputs.total-urls }} total"
+          echo "Success rate: ${{ steps.urlcheck.outputs.success-rate }}"
+          echo "Running in non-strict mode - workflow will not fail"

@@ -1,0 +1,164 @@
+name: Documentation Site URL Validation
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'docs/**'
+      - '*.md'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '*.md'
+  schedule:
+    # Daily check at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-documentation:
+    runs-on: ubuntu-latest
+    name: Validate documentation URLs
+
+    strategy:
+      matrix:
+        check-type:
+          - name: "Internal Links"
+            files: "docs/"
+            include: "md,rst,html"
+            allowlist: ""
+            exclude: "localhost|127\\.0\\.0\\.1|example\\.com"
+            timeout: 10
+            strict: true
+
+          - name: "External Links"
+            files: "docs/ README.md"
+            include: "md,rst,html"
+            allowlist: "github.com,readthedocs.io,sphinx-doc.org"
+            exclude: "localhost|127\\.0\\.0\\.1"
+            timeout: 30
+            strict: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate ${{ matrix.check-type.name }}
+        id: urlcheck
+        uses: simeg/urlsup-action@v2
+        with:
+          files: ${{ matrix.check-type.files }}
+          include-extensions: ${{ matrix.check-type.include }}
+
+          # Network configuration optimized for documentation
+          timeout: ${{ matrix.check-type.timeout }}
+          retry: 3
+          retry-delay: 1500
+          concurrency: 15
+          rate-limit: 200
+
+          # Filtering
+          allowlist: ${{ matrix.check-type.allowlist }}
+          exclude-pattern: ${{ matrix.check-type.exclude }}
+
+          # Allow documentation-friendly status codes
+          allow-status: '200,202,204,301,302'
+
+          # User agent for better server compatibility
+          user-agent: 'documentation-checker/1.0 (+https://github.com/${{ github.repository }})'
+
+          # GitHub integration
+          create-annotations: true
+          fail-on-error: ${{ matrix.check-type.strict }}
+
+        continue-on-error: ${{ !matrix.check-type.strict }}
+
+      - name: Report results for ${{ matrix.check-type.name }}
+        run: |
+          echo "## ${{ matrix.check-type.name }} Results"
+          echo "- Total URLs: ${{ steps.urlcheck.outputs.total-urls }}"
+          echo "- Broken URLs: ${{ steps.urlcheck.outputs.broken-urls }}"
+          echo "- Success Rate: ${{ steps.urlcheck.outputs.success-rate }}"
+
+          if [ "${{ steps.urlcheck.outputs.broken-urls }}" != "0" ]; then
+            echo "⚠️ Found broken links in ${{ matrix.check-type.name }}"
+          else
+            echo "✅ All links working in ${{ matrix.check-type.name }}"
+          fi
+
+  validate-api-docs:
+    runs-on: ubuntu-latest
+    name: Validate API documentation URLs
+    if: contains(github.event.head_commit.modified, 'api/') || github.event_name == 'schedule'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate API documentation
+        uses: simeg/urlsup-action@v2
+        with:
+          files: 'docs/api/ api/'
+          include-extensions: 'md,rst,json,yaml,yml'
+
+          # Longer timeouts for API endpoints
+          timeout: 60
+          retry: 5
+          retry-delay: 3000
+
+          # Conservative concurrency for API calls
+          concurrency: 5
+          rate-limit: 1000
+
+          # API-specific allowlist
+          allowlist: 'api.github.com,httpbin.org,jsonplaceholder.typicode.com'
+
+          # Allow API status codes
+          allow-status: '200,201,202,204,301,302,401,403'
+
+          # Allow timeouts for slow APIs
+          allow-timeout: true
+
+          # Don't fail builds for API docs
+          fail-on-error: false
+
+          create-annotations: true
+
+  check-link-health-trends:
+    runs-on: ubuntu-latest
+    name: Monitor link health trends
+    if: github.event_name == 'schedule'
+    needs: [validate-documentation]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check overall documentation health
+        uses: simeg/urlsup-action@v2
+        with:
+          files: 'docs/ README.md CHANGELOG.md'
+
+          # Comprehensive check with relaxed settings
+          timeout: 30
+          retry: 3
+          concurrency: 20
+
+          allow-status: '200,202,204,301,302,429'
+          allow-timeout: true
+
+          # Use failure threshold for trend monitoring
+          failure-threshold: 5  # Allow up to 5% broken links
+
+          fail-on-error: false
+          create-annotations: true
+
+      - name: Archive results for trending
+        uses: actions/upload-artifact@v4
+        with:
+          name: link-health-report-${{ github.run_number }}
+          path: urlsup-report.json
+          retention-days: 30
