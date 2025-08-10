@@ -332,7 +332,7 @@ class TestE2EActionOffline(unittest.TestCase):
                 "INPUT_FILES": str(working_file),
                 "INPUT_ALLOWLIST": "github.com,example.com",
                 "INPUT_EXCLUDE_PATTERN": "localhost|127\\.0\\.0\\.1",
-                "INPUT_TIMEOUT": "30",
+                "INPUT_TIMEOUT_SECONDS": "30",
             },
             clear=True,
         ):

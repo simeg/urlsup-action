@@ -64,7 +64,7 @@ class TestBuildCommand(unittest.TestCase):
 
     def test_timeout_setting(self):
         """Test timeout setting."""
-        with patch.dict(os.environ, {"INPUT_TIMEOUT": "10"}, clear=True):
+        with patch.dict(os.environ, {"INPUT_TIMEOUT_SECONDS": "10"}, clear=True):
             cmd = build_command()
             self.assertIn("--timeout", cmd)
             self.assertIn("10", cmd)
@@ -78,7 +78,9 @@ class TestBuildCommand(unittest.TestCase):
 
     def test_retry_settings(self):
         """Test retry settings."""
-        with patch.dict(os.environ, {"INPUT_RETRY": "3", "INPUT_RETRY_DELAY": "2000"}, clear=True):
+        with patch.dict(
+            os.environ, {"INPUT_RETRY": "3", "INPUT_RETRY_DELAY_MS": "2000"}, clear=True
+        ):
             cmd = build_command()
             self.assertIn("--retry", cmd)
             self.assertIn("3", cmd)
@@ -153,6 +155,77 @@ class TestBuildCommand(unittest.TestCase):
             self.assertIn("--config", cmd)
             self.assertIn("/path/to/config.json", cmd)
             self.assertIn("--no-config", cmd)
+
+    def test_format_options(self):
+        """Test format options (always JSON)."""
+        # Format is always JSON for proper script parsing
+        with patch.dict(os.environ, {}, clear=True):
+            cmd = build_command()
+            self.assertIn("--format", cmd)
+            self.assertIn("json", cmd)
+
+    def test_failure_threshold_options(self):
+        """Test failure threshold options."""
+        # Test no failure threshold (default)
+        with patch.dict(os.environ, {}, clear=True):
+            cmd = build_command()
+            self.assertNotIn("--failure-threshold", cmd)
+
+        # Test empty failure threshold
+        with patch.dict(os.environ, {"INPUT_FAILURE_THRESHOLD": ""}, clear=True):
+            cmd = build_command()
+            self.assertNotIn("--failure-threshold", cmd)
+
+        # Test valid failure threshold values
+        test_thresholds = ["10", "25", "50", "75", "100"]
+        for threshold in test_thresholds:
+            with self.subTest(threshold=threshold):
+                with patch.dict(os.environ, {"INPUT_FAILURE_THRESHOLD": threshold}, clear=True):
+                    cmd = build_command()
+                    self.assertIn("--failure-threshold", cmd)
+                    self.assertIn(threshold, cmd)
+
+    def test_show_performance_options(self):
+        """Test show-performance parameter handling."""
+        # Test default value (false)
+        with patch.dict(os.environ, {}, clear=True):
+            show_performance = ValidationUtils.to_bool(
+                os.environ.get("INPUT_SHOW_PERFORMANCE", "false")
+            )
+            self.assertFalse(show_performance)
+
+        # Test explicit false
+        with patch.dict(os.environ, {"INPUT_SHOW_PERFORMANCE": "false"}, clear=True):
+            show_performance = ValidationUtils.to_bool(
+                os.environ.get("INPUT_SHOW_PERFORMANCE", "false")
+            )
+            self.assertFalse(show_performance)
+
+        # Test explicit true
+        with patch.dict(os.environ, {"INPUT_SHOW_PERFORMANCE": "true"}, clear=True):
+            show_performance = ValidationUtils.to_bool(
+                os.environ.get("INPUT_SHOW_PERFORMANCE", "false")
+            )
+            self.assertTrue(show_performance)
+
+        # Test case insensitive values
+        test_true_values = ["True", "TRUE", "1", "yes", "YES"]
+        for value in test_true_values:
+            with self.subTest(value=value):
+                with patch.dict(os.environ, {"INPUT_SHOW_PERFORMANCE": value}, clear=True):
+                    show_performance = ValidationUtils.to_bool(
+                        os.environ.get("INPUT_SHOW_PERFORMANCE", "false")
+                    )
+                    self.assertTrue(show_performance)
+
+        test_false_values = ["False", "FALSE", "0", "no", "NO", "off"]
+        for value in test_false_values:
+            with self.subTest(value=value):
+                with patch.dict(os.environ, {"INPUT_SHOW_PERFORMANCE": value}, clear=True):
+                    show_performance = ValidationUtils.to_bool(
+                        os.environ.get("INPUT_SHOW_PERFORMANCE", "false")
+                    )
+                    self.assertFalse(show_performance)
 
 
 class TestParseResults(unittest.TestCase):
@@ -697,6 +770,201 @@ class TestValidateUrlsMetricRecording(unittest.TestCase):
 
         # Verify the parallel validation function was still called
         mock_parallel_validate.assert_called_once()
+
+
+class TestSummaryFeatures(unittest.TestCase):
+    """Test job summary features for failure threshold and performance metrics."""
+
+    def setUp(self):
+        """Set up test environment."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.summary_file = Path(self.temp_dir) / "summary.md"
+
+    def tearDown(self):
+        """Clean up test environment."""
+        import shutil
+
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_failure_threshold_display_in_summary(self):
+        """Test that failure threshold information is displayed in job summaries."""
+        # Mock environment for summary generation
+        test_env = {
+            "TOTAL_URLS": "100",
+            "BROKEN_URLS": "5",
+            "SUCCESS_RATE": "95%",
+            "INPUT_FAILURE_THRESHOLD": "10",
+            "INPUT_SHOW_PERFORMANCE": "false",
+            "GITHUB_STEP_SUMMARY": str(self.summary_file),
+        }
+
+        with patch.dict(os.environ, test_env, clear=True):
+            # Import and run summary generation
+            from summary import generate_summary
+
+            generate_summary()
+
+        # Check that summary file was created and contains threshold info
+        self.assertTrue(self.summary_file.exists())
+        with open(self.summary_file) as f:
+            content = f.read()
+
+        # Verify failure threshold information is present
+        self.assertIn("Failure Threshold", content)
+        self.assertIn("10.0%", content)  # Note: format shows decimal
+        self.assertIn("PASSED", content)  # 5% actual < 10% threshold
+        self.assertIn("5.0%", content)  # Actual failure rate
+
+    def test_failure_threshold_exceeded_in_summary(self):
+        """Test failure threshold exceeded scenario in job summary."""
+        test_env = {
+            "TOTAL_URLS": "100",
+            "BROKEN_URLS": "15",
+            "SUCCESS_RATE": "85%",
+            "INPUT_FAILURE_THRESHOLD": "10",
+            "INPUT_SHOW_PERFORMANCE": "false",
+            "GITHUB_STEP_SUMMARY": str(self.summary_file),
+        }
+
+        with patch.dict(os.environ, test_env, clear=True):
+            from summary import generate_summary
+
+            generate_summary()
+
+        with open(self.summary_file) as f:
+            content = f.read()
+
+        # Verify threshold exceeded information
+        self.assertIn("Failure Threshold", content)
+        self.assertIn("10.0%", content)  # Note: format shows decimal
+        self.assertIn("EXCEEDED", content)  # 15% actual > 10% threshold
+        self.assertIn("15.0%", content)  # Actual failure rate
+
+    def test_performance_metrics_shown_when_enabled(self):
+        """Test that performance metrics are shown when show-performance is true."""
+        # Mock telemetry data
+        Telemetry._metrics = {
+            "setup_duration": 2.5,
+            "validation_duration": 10.3,
+            "cache_hit": True,
+            "total_urls_validated": 50,
+        }
+
+        test_env = {
+            "TOTAL_URLS": "50",
+            "BROKEN_URLS": "0",
+            "SUCCESS_RATE": "100%",
+            "INPUT_SHOW_PERFORMANCE": "true",
+            "GITHUB_STEP_SUMMARY": str(self.summary_file),
+        }
+
+        with patch.dict(os.environ, test_env, clear=True):
+            from summary import generate_summary
+
+            generate_summary()
+
+        with open(self.summary_file) as f:
+            content = f.read()
+
+        # Verify performance metrics are present
+        self.assertIn("Performance Metrics", content)
+        self.assertIn("2.5", content)  # Setup duration
+        self.assertIn("10.3", content)  # Validation duration
+
+    def test_performance_metrics_hidden_when_disabled(self):
+        """Test that performance metrics are hidden when show-performance is false."""
+        # Mock telemetry data
+        Telemetry._metrics = {"setup_duration": 2.5, "validation_duration": 10.3, "cache_hit": True}
+
+        test_env = {
+            "TOTAL_URLS": "50",
+            "BROKEN_URLS": "0",
+            "SUCCESS_RATE": "100%",
+            "INPUT_SHOW_PERFORMANCE": "false",
+            "GITHUB_STEP_SUMMARY": str(self.summary_file),
+        }
+
+        with patch.dict(os.environ, test_env, clear=True):
+            from summary import generate_summary
+
+            generate_summary()
+
+        with open(self.summary_file) as f:
+            content = f.read()
+
+        # Verify performance metrics are NOT present
+        self.assertNotIn("Performance Metrics", content)
+
+    def test_failure_threshold_with_zero_urls(self):
+        """Test failure threshold handling when no URLs are found."""
+        test_env = {
+            "TOTAL_URLS": "0",
+            "BROKEN_URLS": "0",
+            "SUCCESS_RATE": "0%",
+            "INPUT_FAILURE_THRESHOLD": "10",
+            "GITHUB_STEP_SUMMARY": str(self.summary_file),
+        }
+
+        with patch.dict(os.environ, test_env, clear=True):
+            from summary import generate_summary
+
+            generate_summary()
+
+        with open(self.summary_file) as f:
+            content = f.read()
+
+        # Should not crash and should show threshold info
+        self.assertIn("Failure Threshold", content)
+        self.assertIn("PASSED", content)  # 0% failure rate should pass any threshold
+
+    def test_invalid_failure_threshold_handling(self):
+        """Test handling of invalid failure threshold values."""
+        test_env = {
+            "TOTAL_URLS": "100",
+            "BROKEN_URLS": "5",
+            "SUCCESS_RATE": "95%",
+            "INPUT_FAILURE_THRESHOLD": "invalid",
+            "GITHUB_STEP_SUMMARY": str(self.summary_file),
+        }
+
+        with patch.dict(os.environ, test_env, clear=True):
+            from summary import generate_summary
+
+            # Should not crash with invalid threshold
+            generate_summary()
+
+        with open(self.summary_file) as f:
+            content = f.read()
+
+        # Should not include threshold information for invalid values
+        self.assertNotIn("Failure Threshold", content)
+
+
+class TestFormatParameterIntegration(unittest.TestCase):
+    """Test format parameter integration across the validation pipeline."""
+
+    def setUp(self):
+        """Reset telemetry state before each test."""
+        Telemetry._metrics = {}
+
+    def test_format_parameter_passed_to_urlsup(self):
+        """Test that format parameter is always JSON."""
+        # Format is always JSON for proper script parsing
+        with patch.dict(os.environ, {}, clear=True):
+            cmd = build_command()
+
+            # Verify format is always JSON
+            self.assertIn("--format", cmd)
+            format_index = cmd.index("--format")
+            self.assertEqual(cmd[format_index + 1], "json")
+
+    def test_default_format_is_json(self):
+        """Test that format is always JSON."""
+        with patch.dict(os.environ, {}, clear=True):
+            cmd = build_command()
+            self.assertIn("--format", cmd)
+            format_index = cmd.index("--format")
+            self.assertEqual(cmd[format_index + 1], "json")
 
 
 if __name__ == "__main__":

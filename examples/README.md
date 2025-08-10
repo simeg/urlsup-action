@@ -182,4 +182,3 @@ Have a useful configuration or workflow? Please contribute!
 
 - 📖 [Main README](../README.md) - Full action documentation
 - 🐛 [Issues](https://github.com/simeg/urlsup-action/issues) - Report problems
-- 💬 [Discussions](https://github.com/simeg/urlsup-action/discussions) - Ask questions

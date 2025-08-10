@@ -18,7 +18,7 @@ inputs:
     default: 'md,rst,txt,html'
 
   # Network Configuration
-  timeout:
+  timeout-seconds:
     description: 'Connection timeout in seconds'
     required: false
     default: '5'
@@ -29,11 +29,11 @@ inputs:
     description: 'Retry attempts for failed requests'
     required: false
     default: '2'
-  retry-delay:
+  retry-delay-ms:
     description: 'Delay between retries in milliseconds'
     required: false
     default: '1000'
-  rate-limit:
+  rate-limit-ms:
     description: 'Delay between requests in milliseconds'
     required: false
     default: '100'
@@ -54,8 +54,9 @@ inputs:
     required: false
     default: 'false'
   failure-threshold:
-    description: 'Failure threshold - fail only if more than X% of URLs are broken (0-100)'
+    description: 'Failure threshold - fail only if more than X% of URLs are broken (0-100). Leave empty to fail on any broken URL (default behavior).'
     required: false
+    default: ''
 
   # Output Configuration
   quiet:
@@ -75,7 +76,7 @@ inputs:
   user-agent:
     description: 'Custom User-Agent header'
     required: false
-    default: 'urlsup-action/2.2.0 (+https://github.com/simeg/urlsup-action)'
+    default: 'urlsup-action/1.0.0 (+https://github.com/simeg/urlsup-action)'
   proxy:
     description: 'HTTP/HTTPS proxy URL'
     required: false
@@ -104,6 +105,10 @@ inputs:
     description: 'Fail the action if broken URLs are found'
     required: false
     default: 'true'
+  show-performance:
+    description: 'Show performance metrics in job summaries'
+    required: false
+    default: 'false'
 
 outputs:
   total-urls:
@@ -178,11 +183,11 @@ runs:
         INPUT_RECURSIVE: ${{ inputs.recursive }}
         INPUT_INCLUDE_EXTENSIONS: ${{ inputs.include-extensions }}
         # Network Configuration
-        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        INPUT_TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
         INPUT_CONCURRENCY: ${{ inputs.concurrency }}
         INPUT_RETRY: ${{ inputs.retry }}
-        INPUT_RETRY_DELAY: ${{ inputs.retry-delay }}
-        INPUT_RATE_LIMIT: ${{ inputs.rate-limit }}
+        INPUT_RETRY_DELAY_MS: ${{ inputs.retry-delay-ms }}
+        INPUT_RATE_LIMIT_MS: ${{ inputs.rate-limit-ms }}
         # URL Filtering
         INPUT_ALLOWLIST: ${{ inputs.allowlist }}
         INPUT_ALLOW_STATUS: ${{ inputs.allow-status }}
@@ -202,6 +207,7 @@ runs:
         # Action-specific
         INPUT_CREATE_ANNOTATIONS: ${{ inputs.create-annotations }}
         INPUT_FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
+        INPUT_SHOW_PERFORMANCE: ${{ inputs.show-performance }}
 
     - name: Create annotations
       if: inputs.create-annotations == 'true' && steps.validate.outputs.broken-urls != '0'

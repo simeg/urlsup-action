@@ -122,42 +122,42 @@ Use a config file as base and override specific settings:
 - uses: simeg/urlsup-action@v2
   with:
     config: examples/configs/documentation.json
-    timeout: 30  # Override timeout from config
+    timeout: 30                           # Override timeout from config
     allowlist: 'mydomain.com,github.com'  # Override allowlist
 ```
 
 ## Configuration Parameters
 
 ### Network Settings
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `timeout` | Request timeout in seconds | `15` |
-| `retry` | Number of retry attempts | `3` |
-| `retry_delay` | Delay between retries (ms) | `2000` |
-| `concurrency` | Concurrent requests | `20` |
-| `rate_limit` | Delay between requests (ms) | `200` |
+| Parameter     | Description                 | Example |
+|---------------|-----------------------------|---------|
+| `timeout`     | Request timeout in seconds  | `15`    |
+| `retry`       | Number of retry attempts    | `3`     |
+| `retry_delay` | Delay between retries (ms)  | `2000`  |
+| `concurrency` | Concurrent requests         | `20`    |
+| `rate_limit`  | Delay between requests (ms) | `200`   |
 
 ### URL Filtering
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `allow_status` | Allowed HTTP status codes | `[200, 301, 302]` |
-| `allowlist` | Domains to always allow | `["github.com", "*.example.com"]` |
-| `exclude_patterns` | URL patterns to skip | `["localhost", "staging\\."]` |
-| `allow_timeout` | Allow URLs that timeout | `true` |
-| `failure_threshold` | Max % of broken URLs allowed | `10` |
+| Parameter           | Description                  | Example                           |
+|---------------------|------------------------------|-----------------------------------|
+| `allow_status`      | Allowed HTTP status codes    | `[200, 301, 302]`                 |
+| `allowlist`         | Domains to always allow      | `["github.com", "*.example.com"]` |
+| `exclude_patterns`  | URL patterns to skip         | `["localhost", "staging\\."]`     |
+| `allow_timeout`     | Allow URLs that timeout      | `true`                            |
+| `failure_threshold` | Max % of broken URLs allowed | `10`                              |
 
 ### File Processing
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `include` | File extensions to check | `["md", "rst", "html"]` |
-| `exclude` | Directories to skip | `["node_modules/", ".git/"]` |
+| Parameter | Description              | Example                      |
+|-----------|--------------------------|------------------------------|
+| `include` | File extensions to check | `["md", "rst", "html"]`      |
+| `exclude` | Directories to skip      | `["node_modules/", ".git/"]` |
 
 ### Advanced Options
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `user_agent` | Custom User-Agent header | `"my-checker/1.0"` |
-| `proxy` | HTTP/HTTPS proxy URL | `"http://proxy:8080"` |
-| `insecure` | Skip SSL verification | `false` |
+| Parameter    | Description              | Example               |
+|--------------|--------------------------|-----------------------|
+| `user_agent` | Custom User-Agent header | `"my-checker/1.0"`    |
+| `proxy`      | HTTP/HTTPS proxy URL     | `"http://proxy:8080"` |
+| `insecure`   | Skip SSL verification    | `false`               |
 
 ## Best Practices
 

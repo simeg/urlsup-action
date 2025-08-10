@@ -54,7 +54,7 @@ jobs:
 
           # GITHUB INTEGRATION
           create-annotations: true  # Show broken URLs in files
-          fail-on-error: true      # Fail workflow on broken URLs
+          fail-on-error: true       # Fail workflow on broken URLs
 
           # OPTIONAL: Custom user agent
           # user-agent: 'url-checker/1.0 (+https://github.com/your-org/your-repo)'

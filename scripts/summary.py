@@ -103,10 +103,22 @@ def generate_summary() -> None:
             summary_content += f"""
 | **Duplicate URLs** | {duplicate_urls} |"""
 
-    summary_content += "\n\n"
-    """
+    # Add failure threshold information if used
+    failure_threshold = os.environ.get("INPUT_FAILURE_THRESHOLD", "")
+    if failure_threshold and failure_threshold.strip():
+        try:
+            threshold_value = float(failure_threshold)
+            actual_failure_rate = (broken_urls / total_urls * 100) if total_urls > 0 else 0
+            threshold_status = (
+                "✅ PASSED" if actual_failure_rate <= threshold_value else "❌ EXCEEDED"
+            )
+            summary_content += f"""
+| **Failure Threshold** | {threshold_value}% ({threshold_status}) |
+| **Actual Failure Rate** | {actual_failure_rate:.1f}% |"""
+        except (ValueError, ZeroDivisionError):
+            pass
 
-"""
+    summary_content += "\n\n"
 
     # Add detailed breakdown if there are broken URLs
     if broken_urls > 0 and report_path:
@@ -150,10 +162,12 @@ def generate_summary() -> None:
 
 """
 
-    # Add telemetry summary if enabled
-    telemetry_summary = Telemetry.create_summary_metrics()
-    if telemetry_summary:
-        summary_content += f"\n{telemetry_summary}\n"
+    # Add telemetry summary if enabled and show-performance is true
+    show_performance = ValidationUtils.to_bool(os.environ.get("INPUT_SHOW_PERFORMANCE", "false"))
+    if show_performance:
+        telemetry_summary = Telemetry.create_summary_metrics()
+        if telemetry_summary:
+            summary_content += f"\n{telemetry_summary}\n"
 
     # Add action information
     github_run_id = GitHubActions.get_run_id()

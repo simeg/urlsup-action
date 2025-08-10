@@ -53,10 +53,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Validate URLs
+        id: validate-urls
         uses: simeg/urlsup-action@v2
         with:
-          files: '**/*.md'
-          timeout: 5
+          files: '.'
+          recursive: true
+          timeout-seconds: 5
           retry: 2
 ```
 
@@ -65,64 +67,68 @@ jobs:
 ## 📋 Inputs
 
 ### File Selection
-| Input | Description | Default |
-|-------|-------------|---------|
-| `files` | Files or directories to check (space-separated) | `'.'` |
-| `recursive` | Recursively process directories | `true` |
-| `include-extensions` | File extensions to process (comma-separated) | `'md,rst,txt,html'` |
+| Input                | Description                                     | Default             |
+|----------------------|-------------------------------------------------|---------------------|
+| `files`              | Files or directories to check (space-separated) | `'.'`               |
+| `recursive`          | Recursively process directories                 | `true`              |
+| `include-extensions` | File extensions to process (comma-separated)    | `'md,rst,txt,html'` |
 
 ### Network Configuration
-| Input | Description | Default   |
-|-------|-------------|-----------|
-| `timeout` | Connection timeout in seconds | `5`       |
-| `concurrency` | Number of concurrent requests | CPU cores |
-| `retry` | Retry attempts for failed requests | `2`       |
-| `retry-delay` | Delay between retries in milliseconds | `1000`    |
-| `rate-limit` | Delay between requests in milliseconds | `100`     |
+| Input             | Description                            | Default     |
+|-------------------|----------------------------------------|-------------|
+| `timeout-seconds` | Connection timeout in seconds          | `5`         |
+| `concurrency`     | Number of concurrent requests          | # CPU cores |
+| `retry`           | Retry attempts for failed requests     | `2`         |
+| `retry-delay-ms`  | Delay between retries in milliseconds  | `1000`      |
+| `rate-limit-ms`   | Delay between requests in milliseconds | `100`       |
 
 ### URL Filtering
-| Input | Description | Default |
-|-------|-------------|---------|
-| `allowlist` | URLs to allow (comma-separated patterns) | |
-| `allow-status` | HTTP status codes to allow (comma-separated) | `'200,202,204'` |
-| `exclude-pattern` | URL patterns to exclude (regex) | |
-| `allow-timeout` | Allow URLs that timeout | `false` |
+| Input               | Description                                                                                            | Default         |
+|---------------------|--------------------------------------------------------------------------------------------------------|-----------------|
+| `allowlist`         | URLs to allow (comma-separated patterns)                                                               |                 |
+| `allow-status`      | HTTP status codes to allow (comma-separated)                                                           | `'200,202,204'` |
+| `exclude-pattern`   | URL patterns to exclude (regex)                                                                        |                 |
+| `allow-timeout`     | Allow URLs that timeout                                                                                | `false`         |
+| `failure-threshold` | Fail only if more than X% of URLs are broken (0-100). Leave empty to fail on any broken URL (default). | `''`            |
 
 ### Output Configuration
-| Input | Description | Default |
-|-------|-------------|---------|
-| `quiet` | Suppress progress output | `false` |
-| `verbose` | Enable verbose logging | `false` |
+| Input     | Description                                        | Default  |
+|-----------|----------------------------------------------------|----------|
+| `quiet`   | Suppress progress output                           | `false`  |
+| `verbose` | Enable verbose logging                             | `false`  |
 
 ### Advanced Options
-| Input | Description | Default                            |
-|-------|-------------|------------------------------------|
-| `user-agent` | Custom User-Agent header | `'urlsup-action/{urlsup-version}'` |
-| `proxy` | HTTP/HTTPS proxy URL |                                    |
-| `insecure` | Skip SSL certificate verification | `false`                            |
+| Input        | Description                       | Default                            |
+|--------------|-----------------------------------|------------------------------------|
+| `user-agent` | Custom User-Agent header          | `'urlsup-action/{urlsup-version}'` |
+| `proxy`      | HTTP/HTTPS proxy URL              |                                    |
+| `insecure`   | Skip SSL certificate verification | `false`                            |
 
 ### Action-Specific Options
-| Input | Description | Default |
-|-------|-------------|---------|
-| `urlsup-version` | Version of urlsup to use | `'latest'` |
-| `create-annotations` | Create GitHub annotations for broken URLs | `true` |
-| `fail-on-error` | Fail the action if broken URLs are found | `true` |
+| Input                | Description                                                         | Default    |
+|----------------------|---------------------------------------------------------------------|------------|
+| `urlsup-version`     | Version of urlsup to use                                            | `'latest'` |
+| `create-annotations` | Create GitHub annotations for broken URLs                           | `true`     |
+| `fail-on-error`      | Fail the action if broken URLs are found                            | `true`     |
+| `show-performance`   | Show performance metrics in job summaries                           | `false`    |
+| `telemetry`          | Enable anonymous performance telemetry and metrics in job summaries | `true`     |
 
 ## 📤 Outputs
 
-| Output | Description |
-|--------|-------------|
-| `total-urls` | Total number of URLs checked |
-| `broken-urls` | Number of broken URLs found |
-| `success-rate` | Percentage of working URLs |
-| `report-path` | Path to detailed JSON report |
-| `exit-code` | Exit code from urlsup (0 = success) |
+| Output         | Description                         |
+|----------------|-------------------------------------|
+| `total-urls`   | Total number of URLs checked        |
+| `broken-urls`  | Number of broken URLs found         |
+| `success-rate` | Percentage of working URLs          |
+| `report-path`  | Path to detailed JSON report        |
+| `exit-code`    | Exit code from urlsup (0 = success) |
 
 ## 📖 Usage Examples
 
 ### Basic URL Checking
 ```yaml
 - name: Check all markdown files
+  id: validate-urls
   uses: simeg/urlsup-action@v2
   with:
     files: '**/*.md'
@@ -132,10 +138,11 @@ jobs:
 ### Advanced Configuration
 ```yaml
 - name: Check URLs with custom settings
+  id: validate-urls
   uses: simeg/urlsup-action@v2
   with:
     files: 'docs/ README.md CHANGELOG.md'
-    timeout: 15
+    timeout-seconds: 15
     retry: 3
     concurrency: 20
     allow-status: '200,202,204,404'
@@ -147,6 +154,7 @@ jobs:
 ### Non-Blocking URL Check
 ```yaml
 - name: Check URLs (non-blocking)
+  id: validate-urls
   uses: simeg/urlsup-action@v2
   with:
     files: 'docs/'
@@ -185,13 +193,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate URLs
+        id: validate-urls
         uses: simeg/urlsup-action@v2
         with:
           files: ${{ inputs.files || '**/*.md' }}
-          timeout: 5
+          timeout-seconds: 5
           retry: 2
-          rate-limit: 100
+          rate-limit-ms: 100
           allow-status: ${{ inputs.strict && '200' || '200,202,204' }}
+          failure-threshold: ${{ inputs.strict && '' || '3' }}  # Allow 3% broken URLs in non-strict mode
+          show-performance: true                                # Show detailed metrics
           fail-on-error: ${{ inputs.strict || true }}
 
       - name: Comment on PR
@@ -232,7 +243,9 @@ jobs:
 
 ### Documentation Sites
 ```yaml
-- uses: simeg/urlsup-action@v2
+- name: Validate documentation URLs
+  id: validate-urls
+  uses: simeg/urlsup-action@v2
   with:
     files: 'docs/ *.md'
     include-extensions: 'md,rst'
@@ -242,21 +255,52 @@ jobs:
 
 ### API Documentation
 ```yaml
-- uses: simeg/urlsup-action@v2
+- name: Validate API documentation URLs
+  id: validate-urls
+  uses: simeg/urlsup-action@v2
   with:
     files: 'api-docs/'
-    timeout: 60
+    timeout-seconds: 60
     retry: 3
     allowlist: 'api.example.com,docs.example.com'
 ```
 
-### Lenient Checking
+### Lenient Checking with Thresholds
 ```yaml
-- uses: simeg/urlsup-action@v2
+# Traditional lenient approach (never fails)
+- name: Non-blocking URL validation
+  id: validate-urls
+  uses: simeg/urlsup-action@v2
   with:
     allow-status: '200,202,204,301,302,429'
     allow-timeout: true
     fail-on-error: false
+
+# Modern threshold approach (fails only if too many URLs are broken)
+- name: URL validation with 10% tolerance
+  id: validate-urls
+  uses: simeg/urlsup-action@v2
+  with:
+    failure-threshold: "10"                 # Allow up to 10% broken URLs
+    allow-status: '200,202,204,301,302,429'
+    show-performance: true                  # Track performance metrics
+    retry: 2
+```
+
+### Failure Threshold and Performance Monitoring
+```yaml
+# Allow some broken URLs with detailed performance tracking
+- name: Validate URLs with tolerance and metrics
+  id: validate-urls
+  uses: simeg/urlsup-action@v2
+  with:
+    files: 'docs/ README.md'
+    failure-threshold: "5"           # Allow up to 5% broken URLs
+    show-performance: true           # Show detailed performance metrics
+    timeout-seconds: 10
+    retry: 3
+    rate-limit-ms: 1500              # Be gentle with external sites
+    allow-status: '200,202,204,429'  # Include rate-limited responses
 ```
 
 
@@ -305,7 +349,7 @@ exclude-pattern: 'localhost|127\.0\.0\.1|example\.com|internal\.company\.com'
    ```
 3. **Add rate limiting:**
    ```yaml
-   rate-limit: 2000  # 2 seconds between requests
+   rate-limit-ms: 2000  # 2 seconds between requests
    retry: 3
    ```
 4. **Allow common "false positive" status codes:**
@@ -316,7 +360,7 @@ exclude-pattern: 'localhost|127\.0\.0\.1|example\.com|internal\.company\.com'
 ### **Q: How do I handle rate limiting from websites?**
 **A:** Use these inputs to be more respectful:
 ```yaml
-rate-limit: 1000        # 1 second between requests
+rate-limit-ms: 1000     # 1 second between requests
 retry: 3                # Retry failed requests
 allow-status: '200,429' # Accept 429 (Too Many Requests)
 ```
@@ -335,7 +379,7 @@ on:
 **GitHub URLs failing:**
 ```yaml
 # GitHub often rate limits, be gentle
-rate-limit: 1500
+rate-limit-ms: 1500
 retry: 2
 allow-status: '200,429'  # Allow rate limit responses
 ```
@@ -349,7 +393,7 @@ exclude-pattern: 'api\.internal\.com|admin\.|\/auth\/'
 **International/CDN sites:**
 ```yaml
 # Some CDNs are geographically restricted
-timeout: 10  # Increase timeout
+timeout-seconds: 10      # Increase timeout
 allow-status: '200,403'  # Allow forbidden for geo-blocking
 ```
 
@@ -358,6 +402,76 @@ allow-status: '200,403'  # Allow forbidden for geo-blocking
 # Exclude development environments
 exclude-pattern: 'localhost|127\.0\.0\.1|dev\.|staging\.|\.local'
 ```
+
+### **Q: How do I use failure thresholds to allow some broken URLs?**
+**A:** Use the `failure-threshold` parameter to only fail the action when the percentage of broken URLs exceeds a specific threshold:
+
+```yaml
+# Allow up to 5% of URLs to be broken
+- name: Validate URLs with tolerance
+  id: validate-urls
+  uses: simeg/urlsup-action@v2
+  with:
+    failure-threshold: "5"  # Fail only if >5% of URLs are broken
+    files: 'docs/'
+```
+
+**Common use cases:**
+- **Documentation sites**: Allow 2-5% broken links for external dependencies
+- **Large repositories**: Set 1-3% threshold for legacy or external URLs
+- **CI/CD pipelines**: Use higher thresholds (10-20%) for non-critical checks
+
+**How it works:**
+- If 100 URLs are found and 3 are broken (3%), action passes with `failure-threshold: "5"`
+- If 100 URLs are found and 8 are broken (8%), action fails with `failure-threshold: "5"`
+- Threshold information is displayed in job summaries with clear pass/fail status
+- Leave empty for default behavior (any broken URL fails the action)
+
+### **Q: How do I see performance metrics in job summaries?**
+**A:** Performance metrics are automatically enabled by default and appear in GitHub job summaries when `telemetry: true` (default). The metrics include:
+
+- **Setup Time** - How long it took to install/cache the urlsup binary
+- **Validation Time** - Duration of URL checking process
+- **Cache Status** - Whether the binary was cached (✅ Hit) or downloaded fresh (❌ Miss)
+
+To explicitly enable performance metrics:
+```yaml
+- name: Validate URLs with telemetry
+  id: validate-urls
+  uses: simeg/urlsup-action@v2
+  with:
+    telemetry: true  # Enable performance tracking (default: true)
+```
+
+To disable performance metrics:
+```yaml
+- name: Validate URLs without telemetry
+  id: validate-urls
+  uses: simeg/urlsup-action@v2
+  with:
+    telemetry: false  # Disable performance tracking
+```
+
+### **Q: How do I combine failure thresholds with performance monitoring?**
+**A:** You can use both features together for comprehensive URL validation:
+
+```yaml
+- name: Validate URLs with threshold and metrics
+  id: validate-urls
+  uses: simeg/urlsup-action@v2
+  with:
+    files: 'docs/ *.md'
+    failure-threshold: "3"      # Allow up to 3% broken URLs
+    show-performance: true      # Show detailed performance metrics
+    retry: 2                    # Retry failed URLs twice
+    rate-limit-ms: 1000         # Be gentle with rate limiting
+```
+
+This configuration will:
+- ✅ Show detailed performance metrics in the job summary
+- ✅ Display failure threshold status (3% tolerance)
+- ✅ Only fail if more than 3% of URLs are broken
+- ✅ Provide actionable recommendations for broken URLs
 
 ### **Q: How do I contribute or report issues?**
 **A:**  Report bugs or feature requests on [GitHub Issues](https://github.com/simeg/urlsup-action/issues)

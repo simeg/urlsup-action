@@ -42,9 +42,9 @@ def build_command() -> List[str]:
         cmd_args.extend(["--include", include_extensions])
 
     # Network configuration
-    timeout = os.environ.get("INPUT_TIMEOUT")
-    if timeout:
-        cmd_args.extend(["--timeout", timeout])
+    timeout_seconds = os.environ.get("INPUT_TIMEOUT_SECONDS")
+    if timeout_seconds:
+        cmd_args.extend(["--timeout", timeout_seconds])
 
     concurrency = os.environ.get("INPUT_CONCURRENCY")
     if concurrency:
@@ -54,13 +54,13 @@ def build_command() -> List[str]:
     if retry and retry != "0":
         cmd_args.extend(["--retry", retry])
 
-    retry_delay = os.environ.get("INPUT_RETRY_DELAY")
-    if retry_delay:
-        cmd_args.extend(["--retry-delay", retry_delay])
+    retry_delay_ms = os.environ.get("INPUT_RETRY_DELAY_MS")
+    if retry_delay_ms:
+        cmd_args.extend(["--retry-delay", retry_delay_ms])
 
-    rate_limit = os.environ.get("INPUT_RATE_LIMIT")
-    if rate_limit and rate_limit != "0":
-        cmd_args.extend(["--rate-limit", rate_limit])
+    rate_limit_ms = os.environ.get("INPUT_RATE_LIMIT_MS")
+    if rate_limit_ms and rate_limit_ms != "0":
+        cmd_args.extend(["--rate-limit", rate_limit_ms])
 
     # URL filtering
     allowlist = os.environ.get("INPUT_ALLOWLIST")
@@ -79,10 +79,10 @@ def build_command() -> List[str]:
         cmd_args.append("--allow-timeout")
 
     failure_threshold = os.environ.get("INPUT_FAILURE_THRESHOLD")
-    if failure_threshold:
+    if failure_threshold and failure_threshold.strip():
         cmd_args.extend(["--failure-threshold", failure_threshold])
 
-    # Output configuration
+    # Output configuration (always JSON for proper script parsing)
     cmd_args.extend(["--format", "json"])
 
     if ValidationUtils.to_bool(os.environ.get("INPUT_QUIET", "false")):
