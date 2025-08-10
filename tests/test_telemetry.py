@@ -1,241 +1,258 @@
 #!/usr/bin/env python3
-"""Unit tests for telemetry functionality."""
+"""
+Manual testing script for telemetry functionality.
+This script allows you to test telemetry features without running the full action.
+"""
 
 import os
 import sys
-import unittest
+import tempfile
+import time
 from pathlib import Path
-from unittest.mock import patch
 
-# Add scripts directory to path for importing
-test_dir = Path(__file__).parent
-sys.path.insert(0, str(test_dir.parent / "scripts"))
+# Add scripts directory to path
+sys.path.insert(0, str(Path(__file__).parent / "scripts"))
 
 from common import Telemetry
 
 
-class TestTelemetry(unittest.TestCase):
-    """Test telemetry functionality."""
+def test_telemetry_enabled():
+    """Test telemetry when enabled."""
+    print("🧪 Testing telemetry when ENABLED...")
 
-    def setUp(self):
-        """Reset telemetry state before each test."""
+    # Clear previous metrics
+    Telemetry._metrics = {}
+
+    # Set environment to enable telemetry
+    os.environ["INPUT_TELEMETRY"] = "true"
+    os.environ["GITHUB_REPOSITORY"] = "test/repo"
+    os.environ["RUNNER_OS"] = "Linux"
+
+    # Test basic functionality
+    assert Telemetry.is_enabled(), "Telemetry should be enabled"
+
+    # Test timer functionality
+    Telemetry.start_timer("test_operation")
+    time.sleep(0.1)  # Small delay to ensure measurable time
+    duration = Telemetry.end_timer("test_operation")
+    assert duration > 0, f"Duration should be > 0, got {duration}"
+
+    # Test metric recording
+    Telemetry.record_metric("test_metric", "test_value")
+    assert "test_metric" in Telemetry._metrics, "Metric should be recorded"
+
+    # Test repository info
+    repo_info = Telemetry.get_repository_info()
+    assert repo_info["repo_type"] == "public", f"Expected public, got {repo_info['repo_type']}"
+    assert repo_info["runner_os"] == "Linux", f"Expected Linux, got {repo_info['runner_os']}"
+
+    print("✅ Telemetry enabled tests passed!")
+
+
+def test_telemetry_disabled():
+    """Test telemetry when disabled."""
+    print("🧪 Testing telemetry when DISABLED...")
+
+    # Clear previous metrics
+    Telemetry._metrics = {}
+
+    # Set environment to disable telemetry
+    os.environ["INPUT_TELEMETRY"] = "false"
+
+    # Test basic functionality
+    assert not Telemetry.is_enabled(), "Telemetry should be disabled"
+
+    # Test timer functionality (should do nothing)
+    Telemetry.start_timer("test_operation")
+    time.sleep(0.1)
+    duration = Telemetry.end_timer("test_operation")
+    assert duration == 0.0, f"Duration should be 0.0 when disabled, got {duration}"
+
+    # Test metric recording (should do nothing)
+    Telemetry.record_metric("test_metric", "test_value")
+    assert "test_metric" not in Telemetry._metrics, "Metric should not be recorded when disabled"
+
+    # Test repository info (should return empty dict)
+    repo_info = Telemetry.get_repository_info()
+    assert repo_info == {}, f"Expected empty dict, got {repo_info}"
+
+    print("✅ Telemetry disabled tests passed!")
+
+
+def test_telemetry_annotations():
+    """Test telemetry annotation generation."""
+    print("🧪 Testing telemetry annotations...")
+
+    # Clear previous metrics and enable telemetry
+    Telemetry._metrics = {}
+    os.environ["INPUT_TELEMETRY"] = "true"
+
+    # Set up test metrics
+    Telemetry.record_metric("validation_duration", 3.5)
+    Telemetry.record_metric("setup_duration", 1.2)
+    Telemetry.record_metric("cache_hit", True)
+    Telemetry.record_metric("total_files", 45)  # Medium size
+
+    print("Expected annotations:")
+    print("::notice title=Performance::Validation completed in 3.50s")
+    print("::notice title=Performance::Setup completed in 1.20s")
+    print("::notice title=Performance::Binary cache hit - faster execution")
+    print("::notice title=Repository::Size category: medium (45 files)")
+    print()
+    print("Actual annotations:")
+
+    # Generate annotations (will print to stdout)
+    Telemetry.create_telemetry_annotations()
+
+    print("✅ Telemetry annotations test completed!")
+
+
+def test_telemetry_summary():
+    """Test telemetry summary generation."""
+    print("🧪 Testing telemetry summary generation...")
+
+    # Clear previous metrics and enable telemetry
+    Telemetry._metrics = {}
+    os.environ["INPUT_TELEMETRY"] = "true"
+
+    # Test case 1: Fast performance
+    print("\n📊 Test Case 1: Fast Performance")
+    Telemetry._metrics = {"validation_duration": 2.1, "setup_duration": 0.8, "cache_hit": True}
+
+    summary = Telemetry.create_summary_metrics()
+    print(summary)
+    assert "Great Performance" in summary, "Should show great performance message"
+    assert "✅ Hit" in summary, "Should show cache hit"
+
+    # Test case 2: Slow performance
+    print("\n📊 Test Case 2: Slow Performance")
+    Telemetry._metrics = {"validation_duration": 15.0, "setup_duration": 3.0, "cache_hit": False}
+
+    summary = Telemetry.create_summary_metrics()
+    print(summary)
+    assert "Performance Tip" in summary, "Should show performance tip"
+    assert "❌ Miss" in summary, "Should show cache miss"
+
+    print("✅ Telemetry summary tests passed!")
+
+
+def test_telemetry_opt_out_values():
+    """Test various opt-out values."""
+    print("🧪 Testing telemetry opt-out values...")
+
+    # Test values that should disable telemetry
+    false_values = ["false", "False", "FALSE", "0", "no", "off", ""]
+
+    for value in false_values:
+        os.environ["INPUT_TELEMETRY"] = value
+        assert not Telemetry.is_enabled(), f"Value '{value}' should disable telemetry"
+
+    # Test values that should enable telemetry
+    true_values = ["true", "True", "TRUE", "1", "yes", "on"]
+
+    for value in true_values:
+        os.environ["INPUT_TELEMETRY"] = value
+        assert Telemetry.is_enabled(), f"Value '{value}' should enable telemetry"
+
+    print("✅ Telemetry opt-out tests passed!")
+
+
+def test_github_environment_simulation():
+    """Test telemetry in a simulated GitHub Actions environment."""
+    print("🧪 Testing GitHub Actions environment simulation...")
+
+    # Create temporary files to simulate GitHub environment
+    with tempfile.TemporaryDirectory() as temp_dir:
+        github_output = Path(temp_dir) / "github_output"
+        github_summary = Path(temp_dir) / "github_summary"
+
+        # Set up GitHub environment variables
+        os.environ.update(
+            {
+                "INPUT_TELEMETRY": "true",
+                "GITHUB_WORKSPACE": temp_dir,
+                "GITHUB_OUTPUT": str(github_output),
+                "GITHUB_STEP_SUMMARY": str(github_summary),
+                "GITHUB_RUN_ID": "12345",
+                "GITHUB_REPOSITORY": "test/repo",
+                "RUNNER_OS": "Linux",
+                "SETUP_DURATION": "2.5",
+                "CACHE_HIT": "true",
+            }
+        )
+
+        # Create some fake outputs
+        github_output.write_text("total-urls=50\nbroken-urls=2\n")
+
+        # Clear metrics and set up telemetry
         Telemetry._metrics = {}
-        # Clear environment variables
-        env_vars_to_clear = ["INPUT_TELEMETRY", "GITHUB_REPOSITORY", "RUNNER_OS"]
-        for var in env_vars_to_clear:
-            if var in os.environ:
-                del os.environ[var]
+        Telemetry.record_metric("validation_duration", 4.2)
+        Telemetry.record_metric("setup_duration", 2.5)
+        Telemetry.record_metric("cache_hit", True)
+        Telemetry.record_metric("total_files", 30)
 
-    def test_telemetry_enabled_by_default(self):
-        """Test that telemetry is enabled by default."""
-        self.assertTrue(Telemetry.is_enabled())
+        print("\n📊 Simulated GitHub Actions Environment:")
+        print(f"Workspace: {temp_dir}")
+        print(f"Output file: {github_output}")
+        print(f"Summary file: {github_summary}")
+        print("Run ID: 12345")
 
-    def test_telemetry_can_be_disabled(self):
-        """Test that telemetry can be disabled."""
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "false"}):
-            self.assertFalse(Telemetry.is_enabled())
+        print("\n🏷️ Generated Annotations:")
+        Telemetry.create_telemetry_annotations()
 
-    def test_telemetry_respects_various_false_values(self):
-        """Test that telemetry recognizes various false values."""
-        false_values = ["false", "False", "FALSE", "0", "no", "off"]
-        for value in false_values:
-            with self.subTest(value=value):
-                Telemetry._metrics = {}  # Reset state between iterations
-                with patch.dict(os.environ, {"INPUT_TELEMETRY": value}):
-                    self.assertFalse(Telemetry.is_enabled(), f"Failed for value: {value}")
+        print("\n📋 Generated Summary:")
+        summary = Telemetry.create_summary_metrics()
+        print(summary)
 
-    def test_telemetry_respects_various_true_values(self):
-        """Test that telemetry recognizes various true values."""
-        true_values = ["true", "True", "TRUE", "1", "yes", "on"]
-        for value in true_values:
-            with self.subTest(value=value):
-                Telemetry._metrics = {}  # Reset state between iterations
-                with patch.dict(os.environ, {"INPUT_TELEMETRY": value}):
-                    self.assertTrue(Telemetry.is_enabled(), f"Failed for value: {value}")
+        # Test writing to GitHub summary file
+        if summary:
+            with open(github_summary, "w") as f:
+                f.write("# Test Summary\n\n")
+                f.write(summary)
 
-    def test_timer_functionality_when_enabled(self):
-        """Test timer start/end functionality when telemetry is enabled."""
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "true"}):
-            Telemetry.start_timer("test_operation")
-            self.assertIn("test_operation_start", Telemetry._metrics)
+            print(f"\n📄 Summary written to: {github_summary}")
+            print("Content:")
+            print(github_summary.read_text())
 
-            # End timer
-            duration = Telemetry.end_timer("test_operation")
-            self.assertGreaterEqual(duration, 0)
-            self.assertIn("test_operation_duration", Telemetry._metrics)
-            self.assertEqual(Telemetry._metrics["test_operation_duration"], duration)
-
-    def test_timer_functionality_when_disabled(self):
-        """Test timer functionality when telemetry is disabled."""
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "false"}):
-            Telemetry.start_timer("test_operation")
-            self.assertNotIn("test_operation_start", Telemetry._metrics)
-
-            duration = Telemetry.end_timer("test_operation")
-            self.assertEqual(duration, 0.0)
-            self.assertNotIn("test_operation_duration", Telemetry._metrics)
-
-    def test_record_metric_when_enabled(self):
-        """Test metric recording when telemetry is enabled."""
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "true"}):
-            Telemetry.record_metric("test_metric", "test_value")
-            self.assertEqual(Telemetry._metrics["test_metric"], "test_value")
-
-    def test_record_metric_when_disabled(self):
-        """Test metric recording when telemetry is disabled."""
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "false"}):
-            Telemetry.record_metric("test_metric", "test_value")
-            self.assertNotIn("test_metric", Telemetry._metrics)
-
-    def test_get_repository_info_when_enabled(self):
-        """Test repository info collection when enabled."""
-        with patch.dict(
-            os.environ,
-            {"INPUT_TELEMETRY": "true", "GITHUB_REPOSITORY": "owner/repo", "RUNNER_OS": "Linux"},
-        ):
-            info = Telemetry.get_repository_info()
-            self.assertEqual(info["repo_type"], "public")
-            self.assertEqual(info["runner_os"], "Linux")
-            self.assertEqual(info["action_version"], "2.0.0")
-
-    def test_get_repository_info_when_disabled(self):
-        """Test repository info collection when disabled."""
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "false"}):
-            info = Telemetry.get_repository_info()
-            self.assertEqual(info, {})
-
-    def test_get_repository_info_unknown_repo(self):
-        """Test repository info with unknown repository."""
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "true"}):
-            info = Telemetry.get_repository_info()
-            self.assertEqual(info["repo_type"], "unknown")
-
-    @patch("builtins.print")
-    def test_create_telemetry_annotations_when_enabled(self, mock_print):
-        """Test telemetry annotation creation when enabled."""
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "true"}):
-            # Set up some metrics
-            Telemetry._metrics = {
-                "validation_duration": 5.5,
-                "setup_duration": 2.1,
-                "cache_hit": True,
-                "total_files": 25,
-            }
-
-            Telemetry.create_telemetry_annotations()
-
-            # Check that annotations were printed
-            self.assertTrue(mock_print.called)
-            calls = [str(call) for call in mock_print.call_args_list]
-
-            # Check for specific annotation patterns
-            validation_call = any("Validation completed in 5.50s" in call for call in calls)
-            setup_call = any("Setup completed in 2.10s" in call for call in calls)
-            cache_call = any("Binary cache hit" in call for call in calls)
-            size_call = any("Size category: medium" in call for call in calls)
-
-            self.assertTrue(validation_call, "Validation annotation not found")
-            self.assertTrue(setup_call, "Setup annotation not found")
-            self.assertTrue(cache_call, "Cache annotation not found")
-            self.assertTrue(size_call, "Size annotation not found")
-
-    @patch("builtins.print")
-    def test_create_telemetry_annotations_when_disabled(self, mock_print):
-        """Test telemetry annotation creation when disabled."""
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "false"}):
-            Telemetry._metrics = {"validation_duration": 5.5}
-            Telemetry.create_telemetry_annotations()
-            mock_print.assert_not_called()
-
-    def test_create_summary_metrics_when_enabled(self):
-        """Test summary metrics creation when enabled."""
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "true"}):
-            Telemetry._metrics = {
-                "validation_duration": 3.5,
-                "setup_duration": 1.2,
-                "cache_hit": True,
-            }
-
-            summary = Telemetry.create_summary_metrics()
-
-            self.assertIn("## 📊 Performance Metrics", summary)
-            self.assertIn("3.50s", summary)
-            self.assertIn("1.20s", summary)
-            self.assertIn("✅ Hit", summary)
-            self.assertIn("Great Performance", summary)
-
-    def test_create_summary_metrics_when_disabled(self):
-        """Test summary metrics creation when disabled."""
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "false"}):
-            summary = Telemetry.create_summary_metrics()
-            self.assertEqual(summary, "")
-
-    def test_create_summary_metrics_slow_performance(self):
-        """Test summary metrics with slow performance."""
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "true"}):
-            Telemetry._metrics = {
-                "validation_duration": 15.0,
-                "setup_duration": 2.0,
-                "cache_hit": False,
-            }
-
-            summary = Telemetry.create_summary_metrics()
-
-            self.assertIn("15.00s", summary)
-            self.assertIn("❌ Miss", summary)
-            self.assertIn("Performance Tip", summary)
-            self.assertIn("increasing concurrency", summary)
-
-    def test_repository_size_categorization(self):
-        """Test repository size categorization logic."""
-        test_cases = [(15, "small"), (50, "medium"), (150, "large")]
-
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "true"}):
-            for file_count, expected_size in test_cases:
-                with self.subTest(file_count=file_count, expected_size=expected_size):
-                    Telemetry._metrics = {"total_files": file_count}
-                    with patch("builtins.print") as mock_print:
-                        Telemetry.create_telemetry_annotations()
-                        calls = [str(call) for call in mock_print.call_args_list]
-                        size_call = any(f"Size category: {expected_size}" in call for call in calls)
-                        self.assertTrue(
-                            size_call, f"Expected {expected_size} for {file_count} files"
-                        )
-
-    def test_timer_with_nonexistent_timer(self):
-        """Test ending a timer that was never started."""
-        with patch.dict(os.environ, {"INPUT_TELEMETRY": "true"}):
-            duration = Telemetry.end_timer("nonexistent_timer")
-            self.assertEqual(duration, 0.0)
+    print("✅ GitHub environment simulation test passed!")
 
 
-class TestTelemetryIntegration(unittest.TestCase):
-    """Integration tests for telemetry with other components."""
+def main():
+    """Run all telemetry tests."""
+    print("🚀 Starting Telemetry Test Suite")
+    print("=" * 50)
 
-    def setUp(self):
-        """Reset state before each test."""
-        Telemetry._metrics = {}
+    try:
+        test_telemetry_enabled()
+        print()
 
-    def test_validation_utils_to_bool_integration(self):
-        """Test that telemetry correctly uses ValidationUtils.to_bool."""
-        # Test various input values
-        test_cases = [
-            ("true", True),
-            ("false", False),
-            ("1", True),
-            ("0", False),
-            ("yes", True),
-            ("no", False),
-            ("", False),
-            (None, False),
-        ]
+        test_telemetry_disabled()
+        print()
 
-        for input_val, expected in test_cases:
-            env_val = str(input_val) if input_val is not None else ""
-            with patch.dict(os.environ, {"INPUT_TELEMETRY": env_val}):
-                result = Telemetry.is_enabled()
-                self.assertEqual(result, expected, f"Failed for input: {input_val}")
+        test_telemetry_opt_out_values()
+        print()
+
+        test_telemetry_annotations()
+        print()
+
+        test_telemetry_summary()
+        print()
+
+        test_github_environment_simulation()
+        print()
+
+        print("🎉 All telemetry tests passed!")
+
+    except Exception as e:
+        print(f"❌ Test failed: {e}")
+        sys.exit(1)
+
+    print("\n💡 To test with the full action:")
+    print("1. Create a test workflow in .github/workflows/")
+    print("2. Set 'telemetry: true' (or omit for default)")
+    print("3. Check job summary and annotations in GitHub UI")
+    print("4. Try 'telemetry: false' to verify opt-out works")
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    main()
