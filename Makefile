@@ -94,7 +94,7 @@ ci: lint validate-examples test
 	poetry run pytest tests/ --cov=scripts --cov-report=xml --cov-report=term
 
 # Lint code
-lint: poetry-check
+lint: poetry-check lint-docstrings
 	@echo "🔍 Running linting checks..."
 	@echo "Checking formatting with black..."
 	poetry run black --check scripts/ tests/

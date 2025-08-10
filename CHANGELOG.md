@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2025-08-10
+
+### Added
+- Python script for automatic urlsup version management (`scripts/update_action_version.py`)
+- `show-performance` input parameter for displaying performance metrics in job summaries
+- Makefile target for updating action version automatically
+
+### Changed
+- **BREAKING**: Renamed `timeout` input to `timeout-seconds` for clarity
+- **BREAKING**: Renamed `retry-delay` input to `retry-delay-ms` for clarity
+- **BREAKING**: Renamed `rate-limit` input to `rate-limit-ms` for clarity
+- Updated `failure-threshold` input description with clearer explanation
+- User-agent string corrected to version 1.0.0
+- Enhanced documentation with updated parameter names
+- Improved README examples with new parameter naming
+
+### Fixed
+- Security vulnerability in URL handling: Added HTTPS-only validation to prevent access to file:// schemes
+
 ## [2.0.0] - 2025-08-09
 
 ### Added

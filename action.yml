@@ -96,7 +96,7 @@ inputs:
   urlsup-version:
     description: 'Version of urlsup to use'
     required: false
-    default: 'latest'
+    default: '2.4.0'
   create-annotations:
     description: 'Create GitHub annotations for broken URLs'
     required: false
