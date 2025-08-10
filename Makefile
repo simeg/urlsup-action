@@ -1,6 +1,6 @@
 # Makefile for urlsup-action development
 
-.PHONY: help install test test-unit test-e2e lint lint-docstrings format clean dev-setup ci ci-local poetry-check
+.PHONY: help install test test-unit test-e2e lint lint-docstrings format clean dev-setup ci ci-local poetry-check update-version
 
 # Default target
 help:
@@ -30,6 +30,9 @@ help:
 	@echo ""
 	@echo "Dependencies:"
 	@echo "  make poetry-check     Check if Poetry is installed"
+	@echo ""
+	@echo "Utilities:"
+	@echo "  make update-version   Update urlsup version in action.yml from crates.io"
 
 # Check if Poetry is installed
 poetry-check:
@@ -175,3 +178,8 @@ validate-examples: poetry-check
 # Quick development check
 dev-check: format lint test-unit
 	@echo "🚀 Quick development check completed!"
+
+# Update urlsup version in action.yml
+update-version:
+	@echo "🔄 Updating urlsup version in action.yml..."
+	python3 scripts/update_action_version.py
